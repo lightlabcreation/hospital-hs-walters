@@ -1,26 +1,17 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import Modal from '../../components/common/Modal'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
-import { FiPlus, FiSearch, FiEdit2, FiEye, FiTrash2, FiUser, FiPhone, FiCheck } from 'react-icons/fi'
+import { FiPlus, FiSearch, FiEdit2, FiEye, FiTrash2, FiUser, FiCheck, FiLoader } from 'react-icons/fi'
+import { patientAPI } from '../../api/services'
+import { useAuth } from '../../context/AuthContext'
 
 const Patients = () => {
-  // Dummy Data
-  const [patients, setPatients] = useState(
-    Array.from({ length: 15 }, (_, i) => ({
-      id: `PAT-2026-${String(i + 1).padStart(3, '0')}`,
-      name: `Patient Name ${i + 1}`,
-      age: 25 + i,
-      gender: i % 2 === 0 ? 'Male' : 'Female',
-      phone: `+91 98765 43${String(i).padStart(2, '0')}`,
-      email: `patient${i + 1}@example.com`,
-      address: `Street ${i + 10}, Medical Colony, City`,
-      bloodGroup: ['A+', 'B+', 'O+', 'AB+'][i % 4],
-      lastVisit: `2026-01-${String((i % 6) + 1).padStart(2, '0')}`,
-      history: 'No major allergies. Routine checkup.',
-    }))
-  )
+  const { role } = useAuth()
+  const [patients, setPatients] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   // State Management
   const [searchQuery, setSearchQuery] = useState('')
@@ -29,24 +20,45 @@ const Patients = () => {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [isViewOpen, setIsViewOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   const [formData, setFormData] = useState({
     name: '',
+    email: '',
+    password: '',
     age: '',
     gender: 'Male',
     phone: '',
-    email: '',
     address: '',
     bloodGroup: 'A+',
     history: ''
   })
 
+  // Fetch patients on mount
+  useEffect(() => {
+    fetchPatients()
+  }, [])
+
+  const fetchPatients = async () => {
+    try {
+      setLoading(true)
+      const response = await patientAPI.getAll()
+      setPatients(response.data.data || [])
+      setError('')
+    } catch (err) {
+      console.error('Failed to fetch patients:', err)
+      setError('Failed to load patients')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // Filter Logic
   const filteredPatients = useMemo(() => {
     return patients.filter(p =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.phone.includes(searchQuery)
+      p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.patientId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.phone?.includes(searchQuery)
     )
   }, [patients, searchQuery])
 
@@ -55,10 +67,11 @@ const Patients = () => {
     setIsEdit(false)
     setFormData({
       name: '',
+      email: '',
+      password: '',
       age: '',
       gender: 'Male',
       phone: '',
-      email: '',
       address: '',
       bloodGroup: 'A+',
       history: ''
@@ -69,7 +82,17 @@ const Patients = () => {
   const handleEdit = (item) => {
     setIsEdit(true)
     setSelectedItem(item)
-    setFormData({ ...item })
+    setFormData({
+      name: item.name || '',
+      email: item.email || '',
+      password: '',
+      age: item.age || '',
+      gender: item.gender || 'Male',
+      phone: item.phone || '',
+      address: item.address || '',
+      bloodGroup: item.bloodGroup || 'A+',
+      history: item.history || ''
+    })
     setIsModalOpen(true)
   }
 
@@ -83,25 +106,48 @@ const Patients = () => {
     setIsViewOpen(true)
   }
 
-  const confirmDelete = () => {
-    setPatients(patients.filter(p => p.id !== selectedItem.id))
-    setIsDeleteOpen(false)
-    setSelectedItem(null)
+  const confirmDelete = async () => {
+    try {
+      await patientAPI.delete(selectedItem.id)
+      setPatients(patients.filter(p => p.id !== selectedItem.id))
+      setIsDeleteOpen(false)
+      setSelectedItem(null)
+    } catch (err) {
+      console.error('Failed to delete patient:', err)
+      alert('Failed to delete patient')
+    }
   }
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault()
-    if (isEdit) {
-      setPatients(patients.map(p => p.id === selectedItem.id ? { ...p, ...formData } : p))
-    } else {
-      const newPatient = {
-        ...formData,
-        id: `PAT-2026-${String(patients.length + 1).padStart(3, '0')}`,
-        lastVisit: new Date().toISOString().split('T')[0]
+    setSaving(true)
+
+    try {
+      if (isEdit) {
+        await patientAPI.update(selectedItem.id, formData)
+      } else {
+        await patientAPI.create(formData)
       }
-      setPatients([newPatient, ...patients])
+      await fetchPatients()
+      setIsModalOpen(false)
+    } catch (err) {
+      console.error('Failed to save patient:', err)
+      alert(err.response?.data?.message || 'Failed to save patient')
+    } finally {
+      setSaving(false)
     }
-    setIsModalOpen(false)
+  }
+
+  // Check if user can create/edit patients
+  const canEdit = ['super_admin', 'receptionist'].includes(role)
+  const canDelete = role === 'super_admin'
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <FiLoader className="animate-spin text-[#1d627d]" size={32} />
+      </div>
+    )
   }
 
   return (
@@ -123,14 +169,22 @@ const Patients = () => {
               className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-4 focus:ring-[#90e0ef]/30 font-medium text-sm transition-all"
             />
           </div>
-          <button
-            onClick={handleAdd}
-            className="btn-primary flex items-center gap-2 text-xs uppercase tracking-widest px-6"
-          >
-            <FiPlus size={16} /> New Patient
-          </button>
+          {canEdit && (
+            <button
+              onClick={handleAdd}
+              className="btn-primary flex items-center gap-2 text-xs uppercase tracking-widest px-6"
+            >
+              <FiPlus size={16} /> New Patient
+            </button>
+          )}
         </div>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
 
       {/* Patients Table */}
       <Card className="overflow-hidden p-0 border-gray-100 shadow-sm">
@@ -150,7 +204,7 @@ const Patients = () => {
                 filteredPatients.map((patient) => (
                   <tr key={patient.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="px-6 py-4">
-                      <div className="font-black text-[#1d627d] text-sm tracking-tight">{patient.id}</div>
+                      <div className="font-black text-[#1d627d] text-sm tracking-tight">{patient.patientId}</div>
                       <div className="text-[10px] text-gray-400 font-bold uppercase mt-0.5 tracking-widest">Type: General</div>
                     </td>
                     <td className="px-6 py-4">
@@ -161,7 +215,9 @@ const Patients = () => {
                       <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{patient.age}Y • {patient.gender}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-xs font-bold text-gray-500 whitespace-nowrap">{patient.lastVisit}</div>
+                      <div className="text-xs font-bold text-gray-500 whitespace-nowrap">
+                        {patient.lastVisit ? new Date(patient.lastVisit).toLocaleDateString() : 'N/A'}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-1">
@@ -172,27 +228,33 @@ const Patients = () => {
                         >
                           <FiEye size={16} />
                         </button>
-                        <button
-                          onClick={() => handleEdit(patient)}
-                          className="btn-icon"
-                          title="Edit Profile"
-                        >
-                          <FiEdit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteClick(patient)}
-                          className="btn-icon hover:text-red-500"
-                          title="Archive"
-                        >
-                          <FiTrash2 size={16} />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleEdit(patient)}
+                            className="btn-icon"
+                            title="Edit Profile"
+                          >
+                            <FiEdit2 size={16} />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDeleteClick(patient)}
+                            className="btn-icon hover:text-red-500"
+                            title="Archive"
+                          >
+                            <FiTrash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="5" className="px-6 py-20 text-center text-gray-400 italic font-medium">No results matched your search criteria.</td>
+                  <td colSpan="5" className="px-6 py-20 text-center text-gray-400 italic font-medium">
+                    {searchQuery ? 'No results matched your search criteria.' : 'No patients found.'}
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -202,10 +264,6 @@ const Patients = () => {
         {/* Pagination placeholder */}
         <div className="p-4 border-t border-gray-50 bg-gray-50/20 flex justify-between items-center text-[10px] font-black uppercase text-gray-400">
           <span>{filteredPatients.length} Active Records</span>
-          <div className="flex gap-1">
-            <button className="px-2 py-1 bg-white border border-gray-100 rounded hover:bg-gray-50">Prev</button>
-            <button className="px-2 py-1 bg-white border border-gray-100 rounded hover:bg-gray-50">Next</button>
-          </div>
         </div>
       </Card>
 
@@ -218,24 +276,36 @@ const Patients = () => {
         footer={
           <div className="flex gap-2 w-full justify-end">
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Discard</Button>
-            <Button variant="primary" onClick={handleSave}>
-              <FiCheck className="mr-2" /> {isEdit ? 'Save Changes' : 'Register'}
+            <Button variant="primary" onClick={handleSave} disabled={saving}>
+              <FiCheck className="mr-2" /> {saving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Register')}
             </Button>
           </div>
         }
       >
         <form className="space-y-4 p-1">
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Identity Full Name</label>
-            <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm placeholder:font-normal" placeholder="e.g. John Doe" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Full Name</label>
+            <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm placeholder:font-normal" placeholder="e.g. John Doe" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
           </div>
+          {!isEdit && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label>
+                <input type="email" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="patient@email.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Password</label>
+                <input type="password" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="******" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required />
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Biological Age</label>
-              <input type="number" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="25" value={formData.age} onChange={(e) => setFormData({ ...formData, age: e.target.value })} />
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Age</label>
+              <input type="number" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="25" value={formData.age} onChange={(e) => setFormData({ ...formData, age: e.target.value })} required />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Gender Identity</label>
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Gender</label>
               <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.gender} onChange={(e) => setFormData({ ...formData, gender: e.target.value })}>
                 <option value="Male">Male</option>
                 <option value="Female">Female</option>
@@ -244,28 +314,22 @@ const Patients = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Mobile Contact</label>
-              <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Phone</label>
+              <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="+1 555-0000" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} required />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Blood Group</label>
               <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.bloodGroup} onChange={(e) => setFormData({ ...formData, bloodGroup: e.target.value })}>
-                <option>A+</option><option>B+</option><option>O+</option><option>AB+</option>
+                <option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>O+</option><option>O-</option><option>AB+</option><option>AB-</option>
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">User ID</label>
-              <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="user123" value={formData.username || ''} onChange={(e) => setFormData({ ...formData, username: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Password</label>
-              <input type="password" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="******" value={formData.password || ''} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
-            </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Address</label>
+            <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="123 Main St, City" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Brief Medical Background</label>
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Medical History</label>
             <textarea rows="3" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none font-medium text-sm" placeholder="Allergies, chronic conditions..." value={formData.history} onChange={(e) => setFormData({ ...formData, history: e.target.value })}></textarea>
           </div>
         </form>
@@ -287,7 +351,7 @@ const Patients = () => {
               </div>
               <div>
                 <h4 className="text-xl font-black text-[#1d627d]">{selectedItem.name}</h4>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">{selectedItem.id} • {selectedItem.bloodGroup}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">{selectedItem.patientId} • {selectedItem.bloodGroup}</p>
               </div>
             </div>
             <div className="space-y-3 px-1">
@@ -299,9 +363,15 @@ const Patients = () => {
                 <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">age/gender</span>
                 <span className="font-black text-gray-800">{selectedItem.age}Y • {selectedItem.gender}</span>
               </div>
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 italic text-xs text-gray-600 leading-relaxed">
-                "{selectedItem.history}"
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">email</span>
+                <span className="font-black text-gray-800">{selectedItem.email}</span>
               </div>
+              {selectedItem.history && (
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 italic text-xs text-gray-600 leading-relaxed">
+                  "{selectedItem.history}"
+                </div>
+              )}
             </div>
           </div>
         )}

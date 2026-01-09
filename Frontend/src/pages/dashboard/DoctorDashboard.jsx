@@ -1,24 +1,193 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import StatCard from '../../components/dashboard/StatCard'
 import Card from '../../components/common/Card'
 import Modal from '../../components/common/Modal'
 import Button from '../../components/common/Button'
 import { FiUsers, FiCalendar, FiActivity, FiFileText, FiClock, FiCheckCircle, FiPlay, FiPlus, FiArrowRight, FiCheck, FiEye, FiDownload } from 'react-icons/fi'
+import { appointmentAPI, patientAPI, labAPI, prescriptionAPI, medicalNotesAPI } from '../../api/services'
+import { useAuth } from '../../context/AuthContext'
 
 const DoctorDashboard = () => {
+  const { user } = useAuth()
   const [selectedConsultation, setSelectedConsultation] = useState(null)
   const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false)
   const [isLabModalOpen, setIsLabModalOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [appointments, setAppointments] = useState([])
+  const [patients, setPatients] = useState([])
+  const [labReports, setLabReports] = useState([])
+  const [stats, setStats] = useState({
+    myPatients: 0,
+    todaySlots: 0,
+    remainingSlots: 0,
+    newLabReports: 0,
+    monthlyReports: 0
+  })
+  const [prescriptionForm, setPrescriptionForm] = useState({
+    patientId: '',
+    medications: ''
+  })
+  const [labForm, setLabForm] = useState({
+    patientId: '',
+    tests: []
+  })
+  const [consultationNotes, setConsultationNotes] = useState('')
 
-  const appointments = [
-    { id: '101', name: 'John Doe', time: '10:00 AM', reason: 'Regular Checkup', type: 'First Visit' },
-    { id: '102', name: 'Sarah Smith', time: '10:30 AM', reason: 'Viral Fever', type: 'Follow-up' },
-    { id: '103', name: 'Mike Johnson', time: '11:15 AM', reason: 'Knee Pain', type: 'Review' },
-    { id: '104', name: 'Emily Brown', time: '11:45 AM', reason: 'Skin Allergy', type: 'Consultation' },
-  ]
+  useEffect(() => {
+    fetchDashboardData()
+  }, [])
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true)
+      const [appointmentsRes, patientsRes, labRes] = await Promise.all([
+        appointmentAPI.getAll(),
+        patientAPI.getAll(),
+        labAPI.getAll()
+      ])
+
+      const allAppointments = appointmentsRes.data.data || []
+      const allPatients = patientsRes.data.data || []
+      const allLabReports = labRes.data.data || []
+
+      // Filter today's appointments for this doctor
+      const today = new Date().toISOString().split('T')[0]
+      const todayAppts = allAppointments.filter(a => {
+        const aptDate = a.date?.split('T')[0]
+        return aptDate === today && (a.status === 'scheduled' || a.status === 'pending')
+      })
+
+      setAppointments(todayAppts.slice(0, 10)) // Show max 10 appointments
+      setPatients(allPatients)
+      setLabReports(allLabReports)
+
+      // Calculate stats
+      const completedToday = allAppointments.filter(a => {
+        const aptDate = a.date?.split('T')[0]
+        return aptDate === today && a.status === 'completed'
+      }).length
+
+      const pendingLabReports = allLabReports.filter(l => l.status === 'pending').length
+
+      setStats({
+        myPatients: allPatients.length,
+        todaySlots: todayAppts.length + completedToday,
+        remainingSlots: todayAppts.length,
+        newLabReports: pendingLabReports,
+        monthlyReports: allLabReports.length
+      })
+
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleStartConsultation = (apt) => {
     setSelectedConsultation(apt)
+    setConsultationNotes('')
+  }
+
+  const handleFinishConsultation = async () => {
+    if (!selectedConsultation) return
+    setSaving(true)
+    try {
+      // Update appointment status
+      await appointmentAPI.update(selectedConsultation.id, { status: 'completed' })
+
+      // Create medical note if notes were entered
+      if (consultationNotes.trim()) {
+        await medicalNotesAPI.create({
+          patientId: selectedConsultation.patientId,
+          noteType: 'consultation',
+          content: consultationNotes
+        })
+      }
+
+      await fetchDashboardData()
+      setSelectedConsultation(null)
+    } catch (err) {
+      console.error('Failed to complete consultation:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSavePrescription = async () => {
+    if (!prescriptionForm.patientId || !prescriptionForm.medications) return
+    setSaving(true)
+    try {
+      await prescriptionAPI.create({
+        patientId: parseInt(prescriptionForm.patientId),
+        medications: prescriptionForm.medications,
+        instructions: 'As prescribed'
+      })
+      setIsPrescriptionModalOpen(false)
+      setPrescriptionForm({ patientId: '', medications: '' })
+    } catch (err) {
+      console.error('Failed to create prescription:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveLabRequest = async () => {
+    if (!labForm.patientId || labForm.tests.length === 0) return
+    setSaving(true)
+    try {
+      // Create lab requests for each selected test
+      for (const test of labForm.tests) {
+        await labAPI.create({
+          patientId: parseInt(labForm.patientId),
+          testName: test,
+          status: 'pending'
+        })
+      }
+      setIsLabModalOpen(false)
+      setLabForm({ patientId: '', tests: [] })
+      await fetchDashboardData()
+    } catch (err) {
+      console.error('Failed to create lab request:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleTest = (test) => {
+    setLabForm(prev => ({
+      ...prev,
+      tests: prev.tests.includes(test)
+        ? prev.tests.filter(t => t !== test)
+        : [...prev.tests, test]
+    }))
+  }
+
+  const getPatientName = (apt) => {
+    // Backend returns patient as a string (full name)
+    if (typeof apt.patient === 'string') {
+      return apt.patient || 'Unknown'
+    }
+    // Fallback for object format
+    if (apt.patient) {
+      return apt.patient.name || `${apt.patient.firstName || ''} ${apt.patient.lastName || ''}`.trim() || 'Unknown'
+    }
+    return 'Unknown'
+  }
+
+  const formatTime = (dateStr) => {
+    if (!dateStr) return ''
+    const d = new Date(dateStr)
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1d627d]"></div>
+      </div>
+    )
   }
 
   return (
@@ -47,10 +216,10 @@ const DoctorDashboard = () => {
 
       {/* Stats Section */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-        <StatCard title="My Patients" count="42" subtitle="Active cases" icon={FiUsers} color="blue" />
-        <StatCard title="Today Slots" count="12" subtitle="8 remaining" icon={FiCalendar} color="green" />
-        <StatCard title="Lab Reports" count="6" subtitle="New uploads from patients" icon={FiActivity} color="red" />
-        <StatCard title="Reports Sub" count="128" subtitle="This month" icon={FiFileText} color="purple" />
+        <StatCard title="My Patients" count={stats.myPatients.toString()} subtitle="Active cases" icon={FiUsers} color="blue" />
+        <StatCard title="Today Slots" count={stats.todaySlots.toString()} subtitle={`${stats.remainingSlots} remaining`} icon={FiCalendar} color="green" />
+        <StatCard title="Lab Reports" count={stats.newLabReports.toString()} subtitle="Pending review" icon={FiActivity} color="red" />
+        <StatCard title="Reports Sub" count={stats.monthlyReports.toString()} subtitle="This month" icon={FiFileText} color="purple" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -72,19 +241,19 @@ const DoctorDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {appointments.map((apt) => (
+                  {appointments.length > 0 ? appointments.map((apt) => (
                     <tr key={apt.id} className="hover:bg-gray-50/50 transition-colors group">
                       <td className="px-6 py-4">
-                        <div className="text-sm font-black text-[#1d627d]">{apt.time}</div>
+                        <div className="text-sm font-black text-[#1d627d]">{formatTime(apt.date)}</div>
                         <div className="text-[10px] text-gray-400 font-bold uppercase">30 Min</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm font-bold text-gray-800">#{apt.id} • {apt.name}</div>
-                        <div className="text-[10px] text-[#90E0EF] font-black uppercase tracking-widest">{apt.type}</div>
+                        <div className="text-sm font-bold text-gray-800">#{apt.id} • {getPatientName(apt)}</div>
+                        <div className="text-[10px] text-[#90E0EF] font-black uppercase tracking-widest">{apt.type || 'Consultation'}</div>
                       </td>
                       <td className="px-6 py-4">
                         <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-[10px] font-bold uppercase tracking-tighter">
-                          {apt.reason}
+                          {apt.reason || 'General Checkup'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">
@@ -96,7 +265,13 @@ const DoctorDashboard = () => {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr>
+                      <td colSpan="4" className="px-6 py-10 text-center text-gray-400 text-sm">
+                        No appointments scheduled for today
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -117,7 +292,7 @@ const DoctorDashboard = () => {
                   </div>
                   <div>
                     <p className="text-[10px] font-black text-gray-800 uppercase tracking-tighter leading-none">Review Lab Results</p>
-                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">3 pending signatures</p>
+                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">{stats.newLabReports} pending signatures</p>
                   </div>
                 </li>
                 <li className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-blue-50 hover:bg-white transition-all cursor-pointer">
@@ -125,33 +300,34 @@ const DoctorDashboard = () => {
                     <FiCheckCircle size={16} />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-gray-800 uppercase tracking-tighter leading-none">Discharge Approval</p>
-                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">2 ready to exit</p>
+                    <p className="text-[10px] font-black text-gray-800 uppercase tracking-tighter leading-none">Appointments Today</p>
+                    <p className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">{stats.remainingSlots} remaining</p>
                   </div>
                 </li>
               </ul>
             </div>
           </Card>
 
-          {/* Patient Uploads Notification */}
+          {/* Recent Lab Reports */}
           <Card className="border-gray-100 shadow-sm p-4">
-            <h4 className="text-[10px] font-black text-[#1D627D] uppercase tracking-widest mb-3">Recent Patient Uploads</h4>
+            <h4 className="text-[10px] font-black text-[#1D627D] uppercase tracking-widest mb-3">Recent Lab Reports</h4>
             <ul className="space-y-2">
-              {[
-                { patient: 'Jane Roe', file: 'Thyroid_Report.pdf', time: '10 mins ago' },
-                { patient: 'Mike Ross', file: 'X-Ray_Chest.jpg', time: '1 hr ago' }
-              ].map((up, i) => (
-                <li key={i} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-100">
+              {labReports.slice(0, 3).map((report, i) => (
+                <li key={report.id || i} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-100">
                   <div>
-                    <p className="text-xs font-bold text-gray-800">{up.patient}</p>
-                    <p className="text-[8px] font-black text-gray-400 uppercase tracking-wide">{up.file}</p>
+                    <p className="text-xs font-bold text-gray-800">{typeof report.patient === 'string' ? report.patient : (report.patient?.name || 'Unknown')}</p>
+                    <p className="text-[8px] font-black text-gray-400 uppercase tracking-wide">{report.testName}</p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button className="btn-icon" title="View"><FiEye size={14} /></button>
-                    <button className="btn-icon" title="Download"><FiDownload size={14} /></button>
+                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${report.status === 'completed' ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'}`}>
+                      {report.status}
+                    </span>
                   </div>
                 </li>
               ))}
+              {labReports.length === 0 && (
+                <li className="text-center text-gray-400 text-xs py-4">No lab reports</li>
+              )}
             </ul>
           </Card>
         </div>
@@ -166,10 +342,7 @@ const DoctorDashboard = () => {
         footer={
           <div className="flex gap-2 w-full justify-end">
             <Button variant="secondary" onClick={() => setSelectedConsultation(null)}>Discard</Button>
-            <Button variant="primary" onClick={() => {
-              alert('Completed.')
-              setSelectedConsultation(null)
-            }}>
+            <Button variant="primary" onClick={handleFinishConsultation} loading={saving}>
               <FiCheck className="mr-2" /> Finish
             </Button>
           </div>
@@ -179,14 +352,20 @@ const DoctorDashboard = () => {
           <div className="space-y-6">
             <div className="card-soft-blue flex justify-between items-center">
               <div>
-                <h4 className="text-xl font-black text-[#1d627d]">{selectedConsultation.name}</h4>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">#{selectedConsultation.id} • {selectedConsultation.reason}</p>
+                <h4 className="text-xl font-black text-[#1d627d]">{getPatientName(selectedConsultation)}</h4>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">#{selectedConsultation.id} • {selectedConsultation.reason || 'General Checkup'}</p>
               </div>
             </div>
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Notes</label>
-                <textarea rows="4" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none text-sm font-medium" placeholder="Clinical observations..."></textarea>
+                <textarea
+                  rows="4"
+                  className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none text-sm font-medium"
+                  placeholder="Clinical observations..."
+                  value={consultationNotes}
+                  onChange={(e) => setConsultationNotes(e.target.value)}
+                ></textarea>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none text-xs font-bold" placeholder="BP: 120/80" />
@@ -203,18 +382,35 @@ const DoctorDashboard = () => {
         onClose={() => setIsPrescriptionModalOpen(false)}
         title="Prescription Pad"
         size="md"
-        footer={<Button variant="primary" onClick={() => setIsPrescriptionModalOpen(false)}>Authorize</Button>}
+        footer={
+          <Button variant="primary" onClick={handleSavePrescription} loading={saving}>
+            Authorize
+          </Button>
+        }
       >
         <div className="space-y-4 p-1">
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Patient</label>
-            <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm">
-              {appointments.map(a => <option key={a.id}>{a.name} (ID: {a.id})</option>)}
+            <select
+              className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+              value={prescriptionForm.patientId}
+              onChange={(e) => setPrescriptionForm({ ...prescriptionForm, patientId: e.target.value })}
+            >
+              <option value="">Select Patient</option>
+              {patients.map(p => (
+                <option key={p.id} value={p.id}>{p.name} (ID: {p.patientId || p.id})</option>
+              ))}
             </select>
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Medications</label>
-            <textarea rows="5" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none font-bold text-sm text-[#1d627d]" placeholder="1. Med A - 500mg - 1-0-1"></textarea>
+            <textarea
+              rows="5"
+              className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none font-bold text-sm text-[#1d627d]"
+              placeholder="1. Med A - 500mg - 1-0-1"
+              value={prescriptionForm.medications}
+              onChange={(e) => setPrescriptionForm({ ...prescriptionForm, medications: e.target.value })}
+            ></textarea>
           </div>
         </div>
       </Modal>
@@ -225,13 +421,35 @@ const DoctorDashboard = () => {
         onClose={() => setIsLabModalOpen(false)}
         title="Lab Investigation"
         size="sm"
-        footer={<Button variant="primary" onClick={() => setIsLabModalOpen(false)}>Send Request</Button>}
+        footer={
+          <Button variant="primary" onClick={handleSaveLabRequest} loading={saving}>
+            Send Request
+          </Button>
+        }
       >
         <div className="space-y-4 p-1">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Patient</label>
+            <select
+              className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+              value={labForm.patientId}
+              onChange={(e) => setLabForm({ ...labForm, patientId: e.target.value })}
+            >
+              <option value="">Select Patient</option>
+              {patients.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
           <div className="grid grid-cols-1 gap-2">
-            {['CBC', 'Lipid', 'KFT', 'LFT', 'Thyroid', 'Urine'].map(test => (
+            {['CBC', 'Lipid Profile', 'KFT', 'LFT', 'Thyroid Function', 'Urine Analysis'].map(test => (
               <label key={test} className="p-3 border border-gray-100 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-all">
-                <input type="checkbox" className="w-4 h-4 accent-[#1d627d]" />
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 accent-[#1d627d]"
+                  checked={labForm.tests.includes(test)}
+                  onChange={() => toggleTest(test)}
+                />
                 <span className="text-sm font-bold text-gray-700">{test}</span>
               </label>
             ))}

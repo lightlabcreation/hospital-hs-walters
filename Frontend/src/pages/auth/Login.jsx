@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Button from '../../components/common/Button'
 import Card from '../../components/common/Card'
-import { FiActivity, FiMail, FiLock, FiUser } from 'react-icons/fi'
+import { FiActivity, FiMail, FiLock } from 'react-icons/fi'
 
 const roleCredentials = {
   super_admin: { email: 'admin@clinic.com', password: 'password' },
@@ -14,9 +14,8 @@ const roleCredentials = {
 }
 
 const Login = () => {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [selectedRole, setSelectedRole] = useState('super_admin')
+  const [email, setEmail] = useState('admin@clinic.com')
+  const [password, setPassword] = useState('password')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showCredentials, setShowCredentials] = useState(false)
@@ -24,47 +23,32 @@ const Login = () => {
   const { login } = useAuth()
   const navigate = useNavigate()
 
-  useEffect(() => {
-    const lastEmail = localStorage.getItem('lastLoginEmail')
-    const lastRole = localStorage.getItem('lastLoginRole')
-
-    if (lastEmail && lastRole) {
-      setEmail(lastEmail)
-      setSelectedRole(lastRole)
-      if (roleCredentials[lastRole]) {
-        setPassword(roleCredentials[lastRole].password)
-      }
-    } else {
-      if (roleCredentials[selectedRole]) {
-        setPassword(roleCredentials[selectedRole].password)
-        setEmail(roleCredentials[selectedRole].email)
-      }
+  const handleQuickFill = (role) => {
+    const creds = roleCredentials[role]
+    if (creds) {
+      setEmail(creds.email)
+      setPassword(creds.password)
     }
-  }, [])
+  }
 
-  useEffect(() => {
-    if (roleCredentials[selectedRole]) {
-      setPassword(roleCredentials[selectedRole].password)
-      setEmail(roleCredentials[selectedRole].email)
-    }
-  }, [selectedRole])
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    setTimeout(() => {
-      const result = login(email, password, selectedRole)
+    try {
+      const result = await login(email, password)
       if (result.success) {
         localStorage.setItem('lastLoginEmail', email)
-        localStorage.setItem('lastLoginRole', selectedRole)
         navigate('/dashboard')
       } else {
         setError(result.error || 'Invalid credentials')
       }
+    } catch (err) {
+      setError('An error occurred. Please try again.')
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   return (
@@ -116,26 +100,8 @@ const Login = () => {
           />
         </div>
 
-        <div>
-          <label className="block text-gray-700 text-sm font-medium mb-2 flex items-center gap-2">
-            <FiUser size={16} />
-            Role (for testing)
-          </label>
-          <select
-            value={selectedRole}
-            onChange={(e) => setSelectedRole(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white text-gray-800 focus:outline-none focus:border-[#1d627d] focus:ring-4 focus:ring-[#90e0ef]/40 transition-all"
-          >
-            <option value="super_admin">Super Admin</option>
-            <option value="doctor">Doctor</option>
-            <option value="receptionist">Receptionist</option>
-            <option value="billing_staff">Billing Staff</option>
-            <option value="patient">Patient</option>
-          </select>
-        </div>
-
         <Button type="submit" className="w-full" loading={loading}>
-          Sign In
+          {loading ? 'Signing in...' : 'Sign In'}
         </Button>
       </form>
 
@@ -150,12 +116,20 @@ const Login = () => {
 
         {showCredentials && (
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-700 mb-2">Demo Credentials:</p>
-            {Object.entries(roleCredentials).map(([role, creds]) => (
-              <div key={role} className="text-xs text-gray-600">
-                <span className="font-medium">{role}:</span> {creds.email} / {creds.password}
-              </div>
-            ))}
+            <p className="text-xs font-semibold text-gray-700 mb-3">Click to auto-fill:</p>
+            <div className="grid grid-cols-1 gap-2">
+              {Object.entries(roleCredentials).map(([role, creds]) => (
+                <button
+                  key={role}
+                  type="button"
+                  onClick={() => handleQuickFill(role)}
+                  className="text-left p-2 rounded-lg hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-200"
+                >
+                  <span className="text-xs font-bold text-[#1d627d] uppercase">{role.replace('_', ' ')}</span>
+                  <span className="text-xs text-gray-500 ml-2">{creds.email}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

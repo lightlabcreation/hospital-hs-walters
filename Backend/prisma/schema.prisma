@@ -1,0 +1,271 @@
+// Prisma Schema for Digital Clinic EMR System
+// This is the SINGLE SOURCE OF TRUTH for all data models
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  super_admin
+  doctor
+  receptionist
+  billing_staff
+  patient
+}
+
+enum AppointmentStatus {
+  Scheduled
+  Completed
+  Cancelled
+}
+
+enum PrescriptionStatus {
+  Active
+  Completed
+}
+
+enum LabStatus {
+  Draft
+  Pending
+  Final
+}
+
+enum InvoiceStatus {
+  Pending
+  Paid
+  Overdue
+}
+
+// ============================================
+// USER MODEL - Core authentication entity
+// ============================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One-to-One relations based on role
+  patient Patient?
+  doctor  Doctor?
+  staff   Staff?
+
+  @@index([email])
+  @@index([role])
+}
+
+// ============================================
+// PATIENT MODEL - Profile for patient users
+// ============================================
+
+model Patient {
+  id               String    @id @default(uuid())
+  patientId        String    @unique // PAT-2026-001 format
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  age              Int
+  gender           String
+  phone            String
+  email            String?
+  address          String?
+  bloodGroup       String?
+  history          String?   // Medical background/allergies
+  lastVisit        DateTime?
+  assignedDoctorId String?
+  assignedDoctor   Doctor?   @relation("AssignedPatients", fields: [assignedDoctorId], references: [id])
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  appointments  Appointment[]
+  prescriptions Prescription[]
+  labResults    LabResult[]
+  medicalNotes  MedicalNote[]
+  invoices      Invoice[]
+
+  @@index([patientId])
+  @@index([assignedDoctorId])
+}
+
+// ============================================
+// DOCTOR MODEL - Profile for doctor users
+// ============================================
+
+model Doctor {
+  id             String   @id @default(uuid())
+  doctorId       String   @unique // DOC-2026-001 format
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department     String
+  specialization String?
+  qualifications String?
+  experience     String?
+  phone          String?
+  availability   String?  // "Mon, Wed, Fri"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  assignedPatients Patient[]      @relation("AssignedPatients")
+  appointments     Appointment[]
+  prescriptions    Prescription[]
+  labResults       LabResult[]
+  medicalNotes     MedicalNote[]
+
+  @@index([doctorId])
+  @@index([department])
+}
+
+// ============================================
+// STAFF MODEL - Profile for receptionist/billing staff
+// ============================================
+
+model Staff {
+  id        String    @id @default(uuid())
+  staffId   String    @unique // STF-2026-001 format
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobRole   String    // Receptionist, Billing Manager, Lab Technician
+  shift     String?
+  phone     String?
+  joinedAt  DateTime?
+  status    String    @default("Active")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([staffId])
+  @@index([jobRole])
+}
+
+// ============================================
+// APPOINTMENT MODEL
+// ============================================
+
+model Appointment {
+  id            String            @id @default(uuid())
+  appointmentId String            @unique // APT-2026-001 format
+  patientId     String
+  patient       Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId      String
+  doctor        Doctor            @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  date          DateTime
+  time          String
+  status        AppointmentStatus @default(Scheduled)
+  type          String?           // Offline/Online
+  reason        String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([appointmentId])
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([date])
+  @@index([status])
+}
+
+// ============================================
+// PRESCRIPTION MODEL (Prescription Bank)
+// ============================================
+
+model Prescription {
+  id             String             @id @default(uuid())
+  prescriptionId String             @unique // PRE-2026-001 format
+  patientId      String
+  patient        Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId       String
+  doctor         Doctor             @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  medications    String
+  dosage         String?
+  duration       String?
+  instructions   String?
+  status         PrescriptionStatus @default(Active)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([prescriptionId])
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+// ============================================
+// LAB RESULT MODEL
+// ============================================
+
+model LabResult {
+  id         String    @id @default(uuid())
+  labId      String    @unique // LAB-2026-001 format
+  patientId  String
+  patient    Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId   String
+  doctor     Doctor    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  testName   String
+  findings   String?
+  results    Json?     // Structured results like { hgb: 13.2, wbc: 7500 }
+  technician String?
+  status     LabStatus @default(Pending)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([labId])
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([status])
+}
+
+// ============================================
+// MEDICAL NOTE MODEL
+// ============================================
+
+model MedicalNote {
+  id        String   @id @default(uuid())
+  noteId    String   @unique // NOTE-2026-001 format
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  type      String   // Consultation Note, Progress Note, Follow-up, Surgical Summary
+  preview   String?  // Short preview text
+  detail    String   // Full clinical observation
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([noteId])
+  @@index([patientId])
+  @@index([doctorId])
+}
+
+// ============================================
+// INVOICE MODEL (Billing)
+// ============================================
+
+model Invoice {
+  id        String        @id @default(uuid())
+  invoiceId String        @unique // INV-2026-001 format
+  patientId String
+  patient   Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  amount    Float
+  status    InvoiceStatus @default(Pending)
+  dueDate   DateTime
+  method    String?       // Cash, Insurance, UPI, Credit Card
+  items     Json?         // Array of { desc: "Consultation", price: 1000 }
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([invoiceId])
+  @@index([patientId])
+  @@index([status])
+}

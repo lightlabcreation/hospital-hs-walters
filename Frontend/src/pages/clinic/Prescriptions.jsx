@@ -1,17 +1,28 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { FiPlus, FiSearch, FiFileText, FiDownload, FiEdit2, FiTrash2, FiCheck } from 'react-icons/fi'
 import Modal from '../../components/common/Modal'
 import Button from '../../components/common/Button'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
 import Card from '../../components/common/Card'
 import { printElement, downloadData, generateBaseReport } from '../../utils/helpers'
+import { prescriptionAPI, patientAPI, doctorAPI } from '../../api/services'
+import { useAuth } from '../../context/AuthContext'
 
 const Prescriptions = () => {
-  // Dummy Data
-  const [prescriptions, setPrescriptions] = useState([
-    { id: 'PRE-2026-001', patientId: 'PAT-2026-001', patient: 'John Doe', doctor: 'Dr. Smith', date: 'Oct 25, 2023', status: 'Active', medications: 'Amoxicillin, Paracetamol', dosage: '500mg, 1 twice daily', duration: '5 days', instructions: 'Take after meals' },
-    { id: 'PRE-2026-002', patientId: 'PAT-2026-005', patient: 'Jane Smith', doctor: 'Dr. Wilson', date: 'Oct 24, 2023', status: 'Completed', medications: 'Ibuprofen', dosage: '400mg, 1 as needed', duration: '3 days', instructions: 'Do not exceed 3/day' },
-  ])
+  const { role } = useAuth()
+
+  // Role-based permissions
+  const canCreate = ['super_admin', 'doctor'].includes(role)
+  const canEdit = ['super_admin', 'doctor'].includes(role)
+  const canDelete = ['super_admin'].includes(role)
+
+  // State
+  const [prescriptions, setPrescriptions] = useState([])
+  const [patients, setPatients] = useState([])
+  const [doctors, setDoctors] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   // State Management
   const [searchQuery, setSearchQuery] = useState('')
@@ -21,47 +32,107 @@ const Prescriptions = () => {
   const [isViewOpen, setIsViewOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
   const [formData, setFormData] = useState({
-    patient: '',
-    doctor: '',
+    patientId: '',
+    doctorId: '',
     medications: '',
     dosage: '',
     duration: '',
-    status: 'Active',
+    status: 'active',
     instructions: ''
   })
+
+  // Fetch data on mount
+  useEffect(() => {
+    fetchPrescriptions()
+    fetchPatients()
+    fetchDoctors()
+  }, [])
+
+  const fetchPrescriptions = async () => {
+    try {
+      setLoading(true)
+      const response = await prescriptionAPI.getAll()
+      setPrescriptions(response.data.data || [])
+    } catch (err) {
+      setError('Failed to load prescriptions')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchPatients = async () => {
+    try {
+      const response = await patientAPI.getAll()
+      setPatients(response.data.data || [])
+    } catch (err) {
+      console.error('Failed to load patients:', err)
+    }
+  }
+
+  const fetchDoctors = async () => {
+    try {
+      const response = await doctorAPI.getAll()
+      setDoctors(response.data.data || [])
+    } catch (err) {
+      console.error('Failed to load doctors:', err)
+    }
+  }
+
+  // Helper to format display values
+  const getPatientName = (pre) => pre.patient?.firstName + ' ' + pre.patient?.lastName || 'Unknown'
+  const getDoctorName = (pre) => pre.doctor?.user?.firstName + ' ' + pre.doctor?.user?.lastName || 'Unknown'
+  const formatDate = (dateStr) => {
+    if (!dateStr) return ''
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+  }
 
   // Filtered Data
   const filteredPrescriptions = useMemo(() => {
     return prescriptions.filter(pre => {
-      return pre.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        pre.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        pre.medications.toLowerCase().includes(searchQuery.toLowerCase())
+      const patientName = getPatientName(pre).toLowerCase()
+      const query = searchQuery.toLowerCase()
+      return patientName.includes(query) ||
+        String(pre.id).includes(query) ||
+        (pre.medications || '').toLowerCase().includes(query)
     })
   }, [prescriptions, searchQuery])
 
   // Handlers
   const handleAdd = () => {
+    if (!canCreate) return
     setIsEdit(false)
     setFormData({
-      patient: '',
-      doctor: '',
+      patientId: '',
+      doctorId: '',
       medications: '',
       dosage: '',
       duration: '',
-      status: 'Active',
+      status: 'active',
       instructions: ''
     })
     setIsModalOpen(true)
   }
 
   const handleEdit = (item) => {
+    if (!canEdit) return
     setIsEdit(true)
     setSelectedItem(item)
-    setFormData({ ...item })
+    setFormData({
+      patientId: item.patientId || '',
+      doctorId: item.doctorId || '',
+      medications: item.medications || '',
+      dosage: item.dosage || '',
+      duration: item.duration || '',
+      status: item.status || 'active',
+      instructions: item.instructions || ''
+    })
     setIsModalOpen(true)
   }
 
   const handleDeleteClick = (item) => {
+    if (!canDelete) return
     setSelectedItem(item)
     setIsDeleteOpen(true)
   }
@@ -77,41 +148,68 @@ const Prescriptions = () => {
 
   const handleDownload = (item) => {
     const report = generateBaseReport([item], 'Medical Prescription')
-    downloadData(report, `${item.id}.txt`)
+    downloadData(report, `PRE-${item.id}.txt`)
   }
 
-  const confirmDelete = () => {
-    setPrescriptions(prescriptions.filter(p => p.id !== selectedItem.id))
-    setIsDeleteOpen(false)
-    setSelectedItem(null)
-  }
-
-  const handleSave = (e) => {
-    e.preventDefault()
-    if (isEdit) {
-      setPrescriptions(prescriptions.map(p => p.id === selectedItem.id ? { ...p, ...formData } : p))
-    } else {
-      const newPre = {
-        ...formData,
-        id: `PRE-2026-00${prescriptions.length + 1}`,
-        patientId: `PAT-2026-0${Math.floor(Math.random() * 900) + 100}`,
-        date: new Date().toLocaleDateString()
-      }
-      setPrescriptions([newPre, ...prescriptions])
+  const confirmDelete = async () => {
+    try {
+      await prescriptionAPI.delete(selectedItem.id)
+      setPrescriptions(prescriptions.filter(p => p.id !== selectedItem.id))
+    } catch (err) {
+      console.error('Delete failed:', err)
+      setError('Failed to delete prescription')
+    } finally {
+      setIsDeleteOpen(false)
+      setSelectedItem(null)
     }
-    setIsModalOpen(false)
+  }
+
+  const handleSave = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      if (isEdit) {
+        await prescriptionAPI.update(selectedItem.id, formData)
+      } else {
+        await prescriptionAPI.create(formData)
+      }
+      await fetchPrescriptions()
+      setIsModalOpen(false)
+    } catch (err) {
+      console.error('Save failed:', err)
+      setError(err.response?.data?.message || 'Failed to save prescription')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'Active': return 'bg-green-50 text-green-600 border-green-100'
-      case 'Completed': return 'bg-blue-50 text-blue-600 border-blue-100'
+      case 'active': return 'bg-green-50 text-green-600 border-green-100'
+      case 'completed': return 'bg-blue-50 text-blue-600 border-blue-100'
+      case 'cancelled': return 'bg-red-50 text-red-600 border-red-100'
       default: return 'bg-gray-50 text-gray-400 border-gray-100'
     }
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1d627d]"></div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 pb-20 max-w-7xl mx-auto">
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg">
+          {error}
+          <button onClick={() => setError('')} className="ml-4 text-red-400 hover:text-red-600">Dismiss</button>
+        </div>
+      )}
+
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row justify-between gap-4 items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
@@ -129,12 +227,14 @@ const Prescriptions = () => {
               className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-4 focus:ring-[#90e0ef]/30 font-medium text-sm transition-all"
             />
           </div>
-          <button
-            onClick={handleAdd}
-            className="btn-primary flex items-center gap-2 text-xs uppercase tracking-widest px-6"
-          >
-            <FiPlus size={16} /> New Entry
-          </button>
+          {canCreate && (
+            <button
+              onClick={handleAdd}
+              className="btn-primary flex items-center gap-2 text-xs uppercase tracking-widest px-6"
+            >
+              <FiPlus size={16} /> New Entry
+            </button>
+          )}
         </div>
       </div>
 
@@ -156,11 +256,11 @@ const Prescriptions = () => {
               {filteredPrescriptions.map((pre) => (
                 <tr key={pre.id} className="hover:bg-gray-50 transition-colors group">
                   <td className="px-6 py-4">
-                    <span className="font-black text-[#1d627d]">{pre.id}</span>
-                    <div className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{pre.date}</div>
+                    <span className="font-black text-[#1d627d]">PRE-{pre.id}</span>
+                    <div className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{formatDate(pre.createdAt)}</div>
                   </td>
-                  <td className="px-6 py-4 font-bold text-gray-800">{pre.patient}</td>
-                  <td className="px-6 py-4 text-gray-700 font-medium">{pre.doctor}</td>
+                  <td className="px-6 py-4 font-bold text-gray-800">{getPatientName(pre)}</td>
+                  <td className="px-6 py-4 text-gray-700 font-medium">{getDoctorName(pre)}</td>
                   <td className="px-6 py-4">
                     <div className="max-w-[150px] truncate font-black text-[#1d627d]">{pre.medications}</div>
                     <div className="text-[10px] text-gray-400 italic truncate max-w-[150px]">{pre.instructions}</div>
@@ -173,8 +273,8 @@ const Prescriptions = () => {
                   <td className="px-6 py-4 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <button onClick={() => handleView(pre)} className="btn-icon" title="View Details"><FiFileText size={16} /></button>
-                      <button onClick={() => handleEdit(pre)} className="btn-icon" title="Edit"><FiEdit2 size={16} /></button>
-                      <button onClick={() => handleDeleteClick(pre)} className="btn-icon hover:text-red-500" title="Void"><FiTrash2 size={16} /></button>
+                      {canEdit && <button onClick={() => handleEdit(pre)} className="btn-icon" title="Edit"><FiEdit2 size={16} /></button>}
+                      {canDelete && <button onClick={() => handleDeleteClick(pre)} className="btn-icon hover:text-red-500" title="Void"><FiTrash2 size={16} /></button>}
                     </div>
                   </td>
                 </tr>
@@ -193,7 +293,7 @@ const Prescriptions = () => {
         footer={
           <div className="flex gap-2 w-full justify-end">
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Discard</Button>
-            <Button variant="primary" onClick={handleSave}>
+            <Button variant="primary" onClick={handleSave} loading={saving}>
               <FiCheck className="mr-2" /> {isEdit ? 'Update' : 'Commit'}
             </Button>
           </div>
@@ -202,12 +302,22 @@ const Prescriptions = () => {
         <form className="space-y-4 p-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Patient Name</label>
-              <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm placeholder:font-normal" placeholder="John Doe" value={formData.patient} onChange={(e) => setFormData({ ...formData, patient: e.target.value })} />
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Patient</label>
+              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: parseInt(e.target.value) || '' })}>
+                <option value="">Select Patient</option>
+                {patients.map(p => (
+                  <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Doctor Name</label>
-              <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm placeholder:font-normal" placeholder="Dr. Smith" value={formData.doctor} onChange={(e) => setFormData({ ...formData, doctor: e.target.value })} />
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Prescribing Doctor</label>
+              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.doctorId} onChange={(e) => setFormData({ ...formData, doctorId: parseInt(e.target.value) || '' })}>
+                <option value="">Select Doctor</option>
+                {doctors.map(d => (
+                  <option key={d.id} value={d.id}>{d.user?.firstName} {d.user?.lastName} - {d.specialty}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div className="space-y-1">
@@ -224,6 +334,16 @@ const Prescriptions = () => {
               <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.duration} onChange={(e) => setFormData({ ...formData, duration: e.target.value })} />
             </div>
           </div>
+          {isEdit && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Status</label>
+              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+          )}
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Instructions</label>
             <textarea rows="2" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none font-medium text-sm" placeholder="e.g. Take after food" value={formData.instructions} onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}></textarea>

@@ -1,22 +1,143 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import StatCard from '../../components/dashboard/StatCard'
 import Card from '../../components/common/Card'
 import Modal from '../../components/common/Modal'
 import Button from '../../components/common/Button'
 import { FiFileText, FiCheckCircle, FiClock, FiPlus, FiPrinter, FiMail, FiCheck, FiSearch, FiEye, FiActivity } from 'react-icons/fi'
 import { printElement } from '../../utils/helpers'
+import { billingAPI, patientAPI } from '../../api/services'
 
 const BillingDashboard = () => {
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [transactions, setTransactions] = useState([])
+  const [patients, setPatients] = useState([])
+  const [stats, setStats] = useState({
+    invoicesToday: 0,
+    paymentsReceived: 0,
+    pendingDues: 0
+  })
+  const [formData, setFormData] = useState({
+    patientId: '',
+    amount: '',
+    paymentMethod: 'cash',
+    items: ''
+  })
 
-  const transactions = [
-    { id: 'INV-2026-001', patient: 'Sarah Connor', amount: 2500, status: 'Paid', date: 'Jan 05, 2026', method: 'UPI' },
-    { id: 'INV-2026-002', patient: 'Tony Stark', amount: 15000, status: 'Pending', date: 'Jan 06, 2026', method: 'Insurance' },
-    { id: 'INV-2026-003', patient: 'Diana Prince', amount: 800, status: 'Paid', date: 'Jan 06, 2026', method: 'Cash' },
-    { id: 'INV-2026-004', patient: 'Bruce Wayne', amount: 45000, status: 'Overdue', date: 'Dec 28, 2025', method: 'Card' },
-    { id: 'INV-2026-005', patient: 'Barry Allen', amount: 1200, status: 'Paid', date: 'Jan 06, 2026', method: 'UPI' },
-  ]
+  useEffect(() => {
+    fetchDashboardData()
+  }, [])
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true)
+      const [billingRes, patientsRes] = await Promise.all([
+        billingAPI.getAll(),
+        patientAPI.getAll()
+      ])
+
+      const allInvoices = billingRes.data.data || []
+      const allPatients = patientsRes.data.data || []
+
+      // Filter today's invoices
+      const today = new Date().toISOString().split('T')[0]
+      const todayInvoices = allInvoices.filter(inv => {
+        const invDate = inv.createdAt?.split('T')[0]
+        return invDate === today
+      })
+
+      // Calculate payments received (paid invoices this month)
+      const currentMonth = new Date().getMonth()
+      const currentYear = new Date().getFullYear()
+      const paidThisMonth = allInvoices.filter(inv => {
+        const invDate = new Date(inv.createdAt)
+        return invDate.getMonth() === currentMonth && invDate.getFullYear() === currentYear && inv.status === 'paid'
+      })
+      const totalPaid = paidThisMonth.reduce((sum, inv) => sum + (inv.amount || 0), 0)
+
+      // Calculate pending dues
+      const pendingInvoices = allInvoices.filter(inv => inv.status === 'pending' || inv.status === 'overdue')
+      const totalPending = pendingInvoices.reduce((sum, inv) => sum + (inv.amount || 0), 0)
+
+      setTransactions(allInvoices.slice(-10).reverse())
+      setPatients(allPatients)
+
+      setStats({
+        invoicesToday: todayInvoices.length,
+        paymentsReceived: totalPaid,
+        pendingDues: totalPending
+      })
+
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCreateInvoice = async () => {
+    if (!formData.patientId || !formData.amount) return
+    setSaving(true)
+    try {
+      const dueDate = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+      await billingAPI.create({
+        patientId: parseInt(formData.patientId),
+        amount: parseFloat(formData.amount),
+        paymentMethod: formData.paymentMethod,
+        dueDate,
+        items: formData.items,
+        status: 'pending'
+      })
+      await fetchDashboardData()
+      setIsInvoiceModalOpen(false)
+      setFormData({
+        patientId: '',
+        amount: '',
+        paymentMethod: 'cash',
+        items: ''
+      })
+    } catch (err) {
+      console.error('Failed to create invoice:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const getPatientName = (inv) => {
+    // Backend returns patient as a string (full name)
+    if (typeof inv.patient === 'string') {
+      return inv.patient || 'Unknown'
+    }
+    if (inv.patient) {
+      return inv.patient.name || `${inv.patient.firstName || ''} ${inv.patient.lastName || ''}`.trim() || 'Unknown'
+    }
+    return 'Unknown'
+  }
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return ''
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
+  }
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'paid': return 'bg-green-50 text-green-600 border-green-100'
+      case 'pending': return 'bg-yellow-50 text-yellow-600 border-yellow-100'
+      case 'overdue': return 'bg-red-50 text-red-600 border-red-100'
+      default: return 'bg-gray-50 text-gray-500 border-gray-100'
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1d627d]"></div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 pb-20">
@@ -35,9 +156,9 @@ const BillingDashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <StatCard title="Invoices Generated" count="76" subtitle="Today" icon={FiFileText} color="blue" />
-        <StatCard title="Payments Received" count="J$120,000" subtitle="J$1,20,000" icon={FiCheckCircle} color="green" />
-        <StatCard title="Pending Dues" count="J$65,000" subtitle="Outstanding" icon={FiClock} color="orange" />
+        <StatCard title="Invoices Generated" count={stats.invoicesToday.toString()} subtitle="Today" icon={FiFileText} color="blue" />
+        <StatCard title="Payments Received" count={`J$${stats.paymentsReceived.toLocaleString()}`} subtitle="This month" icon={FiCheckCircle} color="green" />
+        <StatCard title="Pending Dues" count={`J$${stats.pendingDues.toLocaleString()}`} subtitle="Outstanding" icon={FiClock} color="orange" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -59,19 +180,19 @@ const BillingDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {transactions.map(tx => (
+                  {transactions.length > 0 ? transactions.map(tx => (
                     <tr key={tx.id} className="hover:bg-gray-50/50 transition-colors group">
-                      <td className="px-6 py-4 font-black text-[#1d627d] text-xs uppercase">{tx.id}</td>
+                      <td className="px-6 py-4 font-black text-[#1d627d] text-xs uppercase">INV-{tx.id}</td>
                       <td className="px-6 py-4">
-                        <div className="text-sm font-bold text-gray-800 tracking-tight">{tx.patient}</div>
-                        <div className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{tx.date}</div>
+                        <div className="text-sm font-bold text-gray-800 tracking-tight">{getPatientName(tx)}</div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{formatDate(tx.createdAt)}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm font-black text-gray-800">J${tx.amount.toLocaleString()}</div>
-                        <div className="text-[10px] text-gray-400 font-bold uppercase italic">{tx.method}</div>
+                        <div className="text-sm font-black text-gray-800">J${(tx.amount || 0).toLocaleString()}</div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase italic">{tx.paymentMethod}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${tx.status === 'Paid' ? 'bg-green-50 text-green-600 border-green-100' : tx.status === 'Overdue' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-yellow-50 text-yellow-600 border-yellow-100'}`}>
+                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${getStatusColor(tx.status)}`}>
                           {tx.status}
                         </span>
                       </td>
@@ -81,7 +202,13 @@ const BillingDashboard = () => {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                  )) : (
+                    <tr>
+                      <td colSpan="5" className="px-6 py-10 text-center text-gray-400 text-sm">
+                        No transactions found
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -97,23 +224,28 @@ const BillingDashboard = () => {
               <div className="space-y-6 pt-2">
                 <div className="flex justify-between items-end">
                   <div>
-                    <p className="text-[10px] font-black text-[#1d627d] uppercase tracking-widest mb-1 opacity-60">Revenue Target</p>
-                    <p className="text-xl font-black text-gray-800 tracking-tighter">J$1,50,000</p>
+                    <p className="text-[10px] font-black text-[#1d627d] uppercase tracking-widest mb-1 opacity-60">Monthly Target</p>
+                    <p className="text-xl font-black text-gray-800 tracking-tighter">J${(stats.paymentsReceived + stats.pendingDues).toLocaleString()}</p>
                   </div>
-                  <span className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-white/80 px-2 py-0.5 rounded-lg border border-green-100 shadow-sm">75% Achieved</span>
+                  <span className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-white/80 px-2 py-0.5 rounded-lg border border-green-100 shadow-sm">
+                    {stats.paymentsReceived + stats.pendingDues > 0 ? Math.round((stats.paymentsReceived / (stats.paymentsReceived + stats.pendingDues)) * 100) : 0}% Collected
+                  </span>
                 </div>
                 <div className="w-full bg-white/50 rounded-full h-2 p-0.5 shadow-inner">
-                  <div className="bg-[#1D627D] h-1 rounded-full shadow-[0_0_10px_rgba(144,224,239,0.5)]" style={{ width: '75%' }}></div>
+                  <div
+                    className="bg-[#1D627D] h-1 rounded-full shadow-[0_0_10px_rgba(144,224,239,0.5)]"
+                    style={{ width: `${stats.paymentsReceived + stats.pendingDues > 0 ? Math.round((stats.paymentsReceived / (stats.paymentsReceived + stats.pendingDues)) * 100) : 0}%` }}
+                  ></div>
                 </div>
               </div>
-              <p className="text-[10px] text-gray-500 font-medium italic leading-relaxed text-center pt-4">Collection metrics are synchronized every 15 minutes with the central billing ledger.</p>
+              <p className="text-[10px] text-gray-500 font-medium italic leading-relaxed text-center pt-4">Collection metrics are synchronized with the central billing ledger.</p>
             </div>
           </Card>
 
           <Card className="border-gray-100 bg-gray-50/20 border-dashed">
             <div className="flex flex-col items-center gap-2 py-6 text-gray-400">
               <FiCheckCircle size={32} className="opacity-20" />
-              <p className="text-[10px] font-black uppercase tracking-widest">All claims synchronized</p>
+              <p className="text-[10px] font-black uppercase tracking-widest">System operational</p>
             </div>
           </Card>
         </div>
@@ -139,20 +271,24 @@ const BillingDashboard = () => {
         {selectedTx && (
           <div className="space-y-6 p-1">
             <div className="card-soft-blue text-center">
-              <div className="w-12 h-12 bg-green-500 text-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg ${selectedTx.status === 'paid' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
                 <FiCheck size={24} />
               </div>
-              <h4 className="text-xl font-black text-[#1d627d]">{selectedTx.id}</h4>
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Confirmed Payment Receipt</p>
+              <h4 className="text-xl font-black text-[#1d627d]">INV-{selectedTx.id}</h4>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{selectedTx.status === 'paid' ? 'Confirmed Payment Receipt' : 'Pending Payment'}</p>
             </div>
             <div className="space-y-4">
               <div className="flex justify-between text-sm">
                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest self-center">subject identity</span>
-                <span className="font-black text-gray-800">{selectedTx.patient}</span>
+                <span className="font-black text-gray-800">{getPatientName(selectedTx)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest self-center">payment method</span>
+                <span className="font-bold text-gray-700 uppercase">{selectedTx.paymentMethod}</span>
               </div>
               <div className="flex justify-between text-xl border-t border-gray-100 pt-4">
                 <span className="text-[#1D627D] font-black uppercase text-xs tracking-widest self-center">net settle</span>
-                <span className="font-black text-[#1D627D]">J${selectedTx.amount.toLocaleString()}</span>
+                <span className="font-black text-[#1D627D]">J${(selectedTx.amount || 0).toLocaleString()}</span>
               </div>
               <div className="text-center pt-4 italic text-[10px] text-gray-300 font-bold uppercase tracking-widest">Verified Digital Copy • HS Walters</div>
             </div>
@@ -166,42 +302,60 @@ const BillingDashboard = () => {
         onClose={() => setIsInvoiceModalOpen(false)}
         title="Generate Billing Token"
         size="md"
-        footer={<Button variant="primary" onClick={() => setIsInvoiceModalOpen(false)}>Commit Transaction</Button>}
+        footer={
+          <Button variant="primary" onClick={handleCreateInvoice} loading={saving}>
+            Commit Transaction
+          </Button>
+        }
       >
         <div className="space-y-6 p-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Recipient Identity</label>
-              <div className="relative">
-                <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none focus:ring-4 focus:ring-[#90e0ef]/30 text-sm" placeholder="Patient Name / ID" />
-              </div>
+              <select
+                className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+                value={formData.patientId}
+                onChange={(e) => setFormData({ ...formData, patientId: e.target.value })}
+              >
+                <option value="">Select Patient</option>
+                {patients.map(p => (
+                  <option key={p.id} value={p.id}>{p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim()}</option>
+                ))}
+              </select>
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Payment Channel</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm">
-                <option>Self Pay (Cash/Card)</option>
-                <option>Corporate Insurance</option>
-                <option>Government Scheme</option>
+              <select
+                className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+                value={formData.paymentMethod}
+                onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+              >
+                <option value="cash">Cash</option>
+                <option value="card">Credit Card</option>
+                <option value="insurance">Insurance</option>
+                <option value="other">Other</option>
               </select>
             </div>
           </div>
-          <div className="card-soft-blue border-dashed space-y-4">
-            <label className="text-[10px] font-black text-[#1d627d] uppercase tracking-widest mb-2 block">Service breakdown</label>
-            {[
-              { label: 'General Consultation', price: 'J$1,000' },
-              { label: 'Lab Investigation (CBC)', price: 'J$1,500' },
-              { label: 'OPD Registration Fee', price: 'J$2,000' },
-            ].map((s, idx) => (
-              <div key={idx} className="flex justify-between items-center bg-white/80 p-2 rounded-lg border border-blue-50">
-                <span className="text-xs font-bold text-gray-600">{s.label}</span>
-                <span className="text-xs font-black text-[#1d627d]">{s.price}</span>
-              </div>
-            ))}
-            <div className="pt-4 flex justify-between items-center border-t border-blue-100">
-              <span className="font-black text-[10px] uppercase text-[#1d627d] tracking-widest">Cumulative Total</span>
-              <span className="text-2xl font-black text-[#1d627d]">J$1,700</span>
-            </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Total Amount (J$)</label>
+            <input
+              type="number"
+              className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-black text-[#1d627d] text-lg outline-none"
+              placeholder="0.00"
+              value={formData.amount}
+              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Service Description</label>
+            <textarea
+              rows="3"
+              className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-medium outline-none text-sm"
+              placeholder="List services..."
+              value={formData.items}
+              onChange={(e) => setFormData({ ...formData, items: e.target.value })}
+            ></textarea>
           </div>
         </div>
       </Modal>

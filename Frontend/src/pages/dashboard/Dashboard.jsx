@@ -31,7 +31,7 @@ const Dashboard = () => {
     <div>
       <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Welcome back, {user?.name}</h1>
+          <h1 className="text-2xl font-bold text-gray-800">Welcome back, {user?.firstName || user?.name || 'User'}</h1>
           <p className="text-gray-500">Here's what's happening at HS Walters today.</p>
         </div>
         <div className="flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-lg border shadow-sm">

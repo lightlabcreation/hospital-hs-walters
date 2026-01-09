@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState } from 'react'
-import { mockUsers } from '../mock/users'
+import React, { createContext, useContext, useState, useEffect } from 'react'
+import { authAPI, userAPI } from '../api/services'
 
 const AuthContext = createContext(null)
 
@@ -12,61 +12,78 @@ export const useAuth = () => {
 }
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('hospital_user')
-    return savedUser ? JSON.parse(savedUser) : null
-  })
-  const [role, setRole] = useState(() => {
-    return localStorage.getItem('hospital_role') || null
-  })
+  const [user, setUser] = useState(null)
+  const [role, setRole] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  const login = (email, password, selectedRole = null) => {
-    // Mock login logic - allow login with any email/password if role is selected
-    // In real app, this would validate credentials
-    if (!email || !password) {
-      return { success: false, error: 'Email and password are required' }
-    }
+  // Check for existing session on mount
+  useEffect(() => {
+    const initAuth = async () => {
+      const token = localStorage.getItem('token')
+      const savedRole = localStorage.getItem('hospital_role')
 
-    // If role is selected, use it; otherwise try to find user
-    if (selectedRole) {
-      const userData = {
-        id: Date.now(),
-        email,
-        name: email.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        role: selectedRole,
+      if (token && savedRole) {
+        try {
+          // Verify token by fetching user profile
+          const response = await userAPI.getProfile()
+          const userData = response.data
+          setUser(userData)
+          setRole(userData.role)
+          localStorage.setItem('hospital_role', userData.role)
+        } catch (error) {
+          // Token is invalid, clear storage
+          console.error('Session validation failed:', error)
+          localStorage.removeItem('token')
+          localStorage.removeItem('hospital_user')
+          localStorage.removeItem('hospital_role')
+        }
       }
-      setUser(userData)
-      setRole(selectedRole)
-      localStorage.setItem('hospital_user', JSON.stringify(userData))
-      localStorage.setItem('hospital_role', selectedRole)
-      return { success: true, user: userData }
+      setLoading(false)
     }
 
-    // Try to find user by credentials
-    const foundUser = mockUsers.find(
-      (u) => u.email === email && u.password === password
-    )
+    initAuth()
+  }, [])
 
-    if (foundUser) {
-      const userData = {
-        ...foundUser,
-        role: foundUser.role,
-      }
+  const login = async (email, password) => {
+    try {
+      // Call login API
+      const response = await authAPI.login(email, password)
+      const { token, role: userRole } = response.data
+
+      // Store token
+      localStorage.setItem('token', token)
+      localStorage.setItem('hospital_role', userRole)
+
+      // Fetch user profile
+      const profileResponse = await userAPI.getProfile()
+      const userData = profileResponse.data
+
+      // Update state
       setUser(userData)
-      setRole(foundUser.role)
+      setRole(userRole)
       localStorage.setItem('hospital_user', JSON.stringify(userData))
-      localStorage.setItem('hospital_role', foundUser.role)
-      return { success: true, user: userData }
-    }
 
-    return { success: false, error: 'Invalid credentials' }
+      return { success: true, user: userData }
+    } catch (error) {
+      console.error('Login error:', error)
+      const message = error.response?.data?.message || 'Login failed. Please try again.'
+      return { success: false, error: message }
+    }
   }
 
-  const logout = () => {
-    setUser(null)
-    setRole(null)
-    localStorage.removeItem('hospital_user')
-    localStorage.removeItem('hospital_role')
+  const logout = async () => {
+    try {
+      await authAPI.logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      // Clear local state and storage
+      setUser(null)
+      setRole(null)
+      localStorage.removeItem('token')
+      localStorage.removeItem('hospital_user')
+      localStorage.removeItem('hospital_role')
+    }
   }
 
   const updateRole = (newRole) => {
@@ -85,9 +102,18 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     updateRole,
-    isAuthenticated: !!user,
+    loading,
+    isAuthenticated: !!user && !!localStorage.getItem('token'),
+  }
+
+  // Show nothing while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1d627d]"></div>
+      </div>
+    )
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
-

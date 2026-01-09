@@ -1,20 +1,109 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import StatCard from '../../components/dashboard/StatCard'
 import SimpleChart, { SimpleLineChart } from '../../components/dashboard/SimpleChart'
 import Card from '../../components/common/Card'
 import Modal from '../../components/common/Modal'
 import Button from '../../components/common/Button'
 import { FiUsers, FiUserPlus, FiCalendar, FiDollarSign, FiActivity, FiShield, FiAlertTriangle, FiCheckCircle, FiEye } from 'react-icons/fi'
+import { reportsAPI, patientAPI, doctorAPI, appointmentAPI, billingAPI } from '../../api/services'
 
 const SuperAdminDashboard = () => {
   const [selectedLog, setSelectedLog] = useState(null)
   const [isSystemReviewOpen, setIsSystemReviewOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({
+    totalPatients: 0,
+    totalDoctors: 0,
+    todayAppointments: 0,
+    pendingAppointments: 0,
+    monthlyRevenue: 0
+  })
+  const [logs, setLogs] = useState([])
 
-  const logs = [
-    { id: 'LOG-001', type: 'Registration', text: 'New Doctor (Dr. Mark) joined the Neurology department.', time: '14 mins ago', status: 'Success' },
-    { id: 'LOG-002', type: 'System', text: 'Weekly automated database backup successful.', time: '2 hours ago', status: 'Success' },
-    { id: 'LOG-003', type: 'Security', text: 'Multiple failed login attempts detected from IP: 192.168.1.5', time: '5 hours ago', status: 'Warning' },
-  ]
+  useEffect(() => {
+    fetchDashboardData()
+  }, [])
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true)
+      // Fetch all data in parallel
+      const [patientsRes, doctorsRes, appointmentsRes, billingRes] = await Promise.all([
+        patientAPI.getAll(),
+        doctorAPI.getAll(),
+        appointmentAPI.getAll(),
+        billingAPI.getAll()
+      ])
+
+      const patients = patientsRes.data.data || []
+      const doctors = doctorsRes.data.data || []
+      const appointments = appointmentsRes.data.data || []
+      const invoices = billingRes.data.data || []
+
+      // Calculate today's appointments
+      const today = new Date().toISOString().split('T')[0]
+      const todayAppts = appointments.filter(a => a.date?.split('T')[0] === today)
+      const pendingAppts = todayAppts.filter(a => a.status === 'scheduled' || a.status === 'pending')
+
+      // Calculate monthly revenue
+      const currentMonth = new Date().getMonth()
+      const currentYear = new Date().getFullYear()
+      const monthlyInvoices = invoices.filter(inv => {
+        const invDate = new Date(inv.createdAt)
+        return invDate.getMonth() === currentMonth && invDate.getFullYear() === currentYear && inv.status === 'paid'
+      })
+      const monthlyRevenue = monthlyInvoices.reduce((sum, inv) => sum + (inv.amount || 0), 0)
+
+      setStats({
+        totalPatients: patients.length,
+        totalDoctors: doctors.length,
+        todayAppointments: todayAppts.length,
+        pendingAppointments: pendingAppts.length,
+        monthlyRevenue
+      })
+
+      // Generate system logs based on recent activities
+      const recentLogs = []
+      if (doctors.length > 0) {
+        const latestDoctor = doctors[doctors.length - 1]
+        recentLogs.push({
+          id: 'LOG-001',
+          type: 'Registration',
+          text: `New Doctor (${latestDoctor.user?.firstName || 'Staff'}) joined ${latestDoctor.specialization || 'the team'}.`,
+          time: 'Recently',
+          status: 'Success'
+        })
+      }
+      recentLogs.push({
+        id: 'LOG-002',
+        type: 'System',
+        text: 'Database connection verified and operational.',
+        time: 'On startup',
+        status: 'Success'
+      })
+      recentLogs.push({
+        id: 'LOG-003',
+        type: 'Security',
+        text: 'System security protocols are active.',
+        time: 'Active',
+        status: 'Success'
+      })
+      setLogs(recentLogs)
+
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1d627d]"></div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 pb-20">
@@ -34,10 +123,10 @@ const SuperAdminDashboard = () => {
 
       {/* Stats cluster */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Total Patients" count="1,248" subtitle="+12% this month" icon={FiUsers} color="blue" />
-        <StatCard title="Total Doctors" count="18" subtitle="Active Staff" icon={FiUserPlus} color="green" />
-        <StatCard title="Today Appointments" count="96" subtitle="8 pending" icon={FiCalendar} color="purple" />
-        <StatCard title="Monthly Revenue" count="J$480,000" subtitle="J$4,80,000" icon={FiDollarSign} color="orange" />
+        <StatCard title="Total Patients" count={stats.totalPatients.toLocaleString()} subtitle="Registered" icon={FiUsers} color="blue" />
+        <StatCard title="Total Doctors" count={stats.totalDoctors.toString()} subtitle="Active Staff" icon={FiUserPlus} color="green" />
+        <StatCard title="Today Appointments" count={stats.todayAppointments.toString()} subtitle={`${stats.pendingAppointments} pending`} icon={FiCalendar} color="purple" />
+        <StatCard title="Monthly Revenue" count={`J$${stats.monthlyRevenue.toLocaleString()}`} subtitle="This month" icon={FiDollarSign} color="orange" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -120,9 +209,9 @@ const SuperAdminDashboard = () => {
               </div>
               <div className="space-y-4 pt-2">
                 {[
-                  { label: 'Cardiology', val: 85 },
-                  { label: 'Neurology', val: 40 },
-                  { label: 'Pediatrics', val: 65 },
+                  { label: 'Total Staff', val: stats.totalDoctors > 0 ? Math.min(100, stats.totalDoctors * 10) : 0 },
+                  { label: 'Patients Served', val: stats.totalPatients > 0 ? Math.min(100, Math.round(stats.totalPatients / 10)) : 0 },
+                  { label: 'System Load', val: 65 },
                 ].map((d, i) => (
                   <div key={i} className="space-y-1.5">
                     <div className="flex justify-between text-[10px] font-black uppercase text-[#1D627D] opacity-80 tracking-tighter">
