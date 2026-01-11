@@ -63,7 +63,10 @@ const LabResults = () => {
   }
 
   // Helper functions
-  const getPatientName = (report) => report.patient?.firstName + ' ' + report.patient?.lastName || 'Unknown'
+  const getPatientName = (report) => {
+    if (typeof report.patient === 'string') return report.patient
+    return report.patient?.name || report.patient?.firstName + ' ' + report.patient?.lastName || 'Unknown'
+  }
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
     const d = new Date(dateStr)
@@ -299,10 +302,10 @@ const LabResults = () => {
         <div className="space-y-4 p-1">
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Patient</label>
-            <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: parseInt(e.target.value) || '' })}>
+            <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: e.target.value })} >
               <option value="">Select Patient</option>
               {patients.map(p => (
-                <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
+                <option key={p.id} value={p.id}>{p.name} (ID: {p.patientId})</option>
               ))}
             </select>
           </div>

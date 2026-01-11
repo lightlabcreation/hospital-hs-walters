@@ -107,10 +107,13 @@ const getPrescriptionById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { prescriptionId: id }
+      : { OR: [{ id: queryId }, { prescriptionId: id }] };
+
     const prescription = await prisma.prescription.findFirst({
-      where: {
-        OR: [{ id }, { prescriptionId: id }],
-      },
+      where: whereCondition,
       include: {
         patient: {
           include: {
@@ -186,10 +189,13 @@ const createPrescription = async (req, res) => {
     }
 
     // Find patient
+    const patientQueryId = parseInt(patientId);
+    const patientWhere = isNaN(patientQueryId)
+      ? { patientId: patientId }
+      : { OR: [{ id: patientQueryId }, { patientId: patientId }] };
+
     const patient = await prisma.patient.findFirst({
-      where: {
-        OR: [{ id: patientId }, { patientId: patientId }],
-      },
+      where: patientWhere,
     });
 
     if (!patient) {
@@ -199,10 +205,13 @@ const createPrescription = async (req, res) => {
     }
 
     // Find doctor
+    const doctorQueryId = parseInt(doctorId);
+    const doctorWhere = isNaN(doctorQueryId)
+      ? { doctorId: doctorId }
+      : { OR: [{ id: doctorQueryId }, { doctorId: doctorId }] };
+
     const doctor = await prisma.doctor.findFirst({
-      where: {
-        OR: [{ id: doctorId }, { doctorId: doctorId }],
-      },
+      where: doctorWhere,
     });
 
     if (!doctor) {

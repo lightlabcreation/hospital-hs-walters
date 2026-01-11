@@ -125,10 +125,13 @@ const getAppointmentById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { appointmentId: id }
+      : { OR: [{ id: queryId }, { appointmentId: id }] };
+
     const appointment = await prisma.appointment.findFirst({
-      where: {
-        OR: [{ id }, { appointmentId: id }],
-      },
+      where: whereCondition,
       include: {
         patient: {
           include: {
@@ -215,10 +218,13 @@ const createAppointment = async (req, res) => {
     }
 
     // Find patient
+    const patientQueryId = parseInt(patientId);
+    const patientWhere = isNaN(patientQueryId)
+      ? { patientId: patientId }
+      : { OR: [{ id: patientQueryId }, { patientId: patientId }] };
+
     const patient = await prisma.patient.findFirst({
-      where: {
-        OR: [{ id: patientId }, { patientId: patientId }],
-      },
+      where: patientWhere,
     });
 
     if (!patient) {
@@ -228,10 +234,13 @@ const createAppointment = async (req, res) => {
     }
 
     // Find doctor
+    const doctorQueryId = parseInt(doctorId);
+    const doctorWhere = isNaN(doctorQueryId)
+      ? { doctorId: doctorId }
+      : { OR: [{ id: doctorQueryId }, { doctorId: doctorId }] };
+
     const doctor = await prisma.doctor.findFirst({
-      where: {
-        OR: [{ id: doctorId }, { doctorId: doctorId }],
-      },
+      where: doctorWhere,
     });
 
     if (!doctor) {
@@ -313,10 +322,13 @@ const updateAppointment = async (req, res) => {
     const { date, time, status, type, reason } = req.body;
 
     // Find appointment
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { appointmentId: id }
+      : { OR: [{ id: queryId }, { appointmentId: id }] };
+
     const appointment = await prisma.appointment.findFirst({
-      where: {
-        OR: [{ id }, { appointmentId: id }],
-      },
+      where: whereCondition,
     });
 
     if (!appointment) {
@@ -396,10 +408,13 @@ const deleteAppointment = async (req, res) => {
     const { id } = req.params;
 
     // Find appointment
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { appointmentId: id }
+      : { OR: [{ id: queryId }, { appointmentId: id }] };
+
     const appointment = await prisma.appointment.findFirst({
-      where: {
-        OR: [{ id }, { appointmentId: id }],
-      },
+      where: whereCondition,
     });
 
     if (!appointment) {
@@ -434,10 +449,13 @@ const getDoctorSchedule = async (req, res) => {
     const { date } = req.query;
 
     // Find doctor
+    const queryId = parseInt(doctorId);
+    const whereCondition = isNaN(queryId)
+      ? { doctorId: doctorId }
+      : { OR: [{ id: queryId }, { doctorId: doctorId }] };
+
     const doctor = await prisma.doctor.findFirst({
-      where: {
-        OR: [{ id: doctorId }, { doctorId: doctorId }],
-      },
+      where: whereCondition,
       include: {
         user: {
           select: { name: true },

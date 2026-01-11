@@ -27,7 +27,7 @@ const MedicalNotes = () => {
   const [formData, setFormData] = useState({
     patientId: '',
     noteType: 'consultation',
-    content: ''
+    detail: ''
   })
 
   // Fetch data on mount
@@ -59,8 +59,8 @@ const MedicalNotes = () => {
   }
 
   // Helper functions
-  const getPatientName = (note) => note.patient?.firstName + ' ' + note.patient?.lastName || 'Unknown'
-  const getAuthorName = (note) => note.doctor?.user?.firstName + ' ' + note.doctor?.user?.lastName || 'Unknown'
+  const getPatientName = (note) => note.patient || 'Unknown'
+  const getAuthorName = (note) => note.author || 'Unknown'
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
     const d = new Date(dateStr)
@@ -77,8 +77,8 @@ const MedicalNotes = () => {
     setIsEdit(false)
     setFormData({
       patientId: '',
-      noteType: 'consultation',
-      content: ''
+      type: 'consultation',
+      detail: ''
     })
     setIsNoteModalOpen(true)
   }
@@ -89,8 +89,8 @@ const MedicalNotes = () => {
     setSelectedNote(note)
     setFormData({
       patientId: note.patientId || '',
-      noteType: note.noteType || 'consultation',
-      content: note.content || ''
+      type: note.type || 'consultation',
+      detail: note.detail || ''
     })
     setIsNoteModalOpen(true)
   }
@@ -119,7 +119,7 @@ const MedicalNotes = () => {
       const query = searchQuery.toLowerCase()
       return patientName.includes(query) ||
         String(n.id).includes(query) ||
-        (n.noteType || '').toLowerCase().includes(query)
+        (n.type || '').toLowerCase().includes(query)
     })
   }, [notes, searchQuery])
 
@@ -185,16 +185,16 @@ const MedicalNotes = () => {
               {filteredNotes.length > 0 ? filteredNotes.map((note) => (
                 <tr key={note.id} className="hover:bg-gray-50/50 transition-colors group">
                   <td className="px-6 py-4">
-                    <div className="text-sm font-bold text-gray-800">{formatDate(note.createdAt)}</div>
-                    <div className="text-[10px] text-gray-400 uppercase font-black">{formatTime(note.createdAt)}</div>
+                    <div className="text-sm font-bold text-gray-800">{formatDate(note.date)}</div>
+                    <div className="text-[10px] text-gray-400 uppercase font-black">{note.time}</div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="font-black text-[#1D627D]">{getPatientName(note)}</div>
-                    <div className="text-[10px] text-gray-400 uppercase tracking-tighter">NOTE-{note.id}</div>
+                    <div className="text-[10px] text-gray-400 uppercase tracking-tighter">{note.noteId}</div>
                   </td>
                   <td className="px-6 py-4">
-                    <p className="text-sm text-gray-600 truncate max-w-md font-medium">{note.content?.substring(0, 80)}...</p>
-                    <p className="text-[10px] text-[#90E0EF] font-black uppercase tracking-widest">{note.noteType}</p>
+                    <p className="text-sm text-gray-600 truncate max-w-md font-medium">{note.preview || note.detail?.substring(0, 80)}...</p>
+                    <p className="text-[10px] text-[#90E0EF] font-black uppercase tracking-widest">{note.type}</p>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center gap-2">
@@ -251,26 +251,26 @@ const MedicalNotes = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Patient</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: parseInt(e.target.value) || '' })}>
+              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: e.target.value })} >
                 <option value="">Select Patient</option>
                 {patients.map(p => (
-                  <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
+                  <option key={p.id} value={p.id}>{p.name} (ID: {p.patientId})</option>
                 ))}
               </select>
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Note Type</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.noteType} onChange={(e) => setFormData({ ...formData, noteType: e.target.value })}>
-                <option value="consultation">Consultation Note</option>
-                <option value="progress">Progress Note</option>
-                <option value="followup">Follow-up Visit</option>
-                <option value="surgical">Surgical Summary</option>
+              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })}>
+                <option value="Consultation">Consultation Note</option>
+                <option value="Progress">Progress Note</option>
+                <option value="Follow-up">Follow-up Visit</option>
+                <option value="Surgical">Surgical Summary</option>
               </select>
             </div>
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Clinical Observations</label>
-            <textarea rows="6" className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-medium text-sm leading-relaxed" placeholder="Record encounter details here..." value={formData.content} onChange={(e) => setFormData({ ...formData, content: e.target.value })}></textarea>
+            <textarea rows="6" className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-medium text-sm leading-relaxed" placeholder="Record encounter details here..." value={formData.detail} onChange={(e) => setFormData({ ...formData, detail: e.target.value })}></textarea>
           </div>
         </div>
       </Modal>
@@ -288,23 +288,23 @@ const MedicalNotes = () => {
             <div className="card-soft-blue flex justify-between items-center">
               <div>
                 <h3 className="text-xl font-black text-[#1D627D] tracking-tight">{getPatientName(selectedNote)}</h3>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{selectedNote.noteType}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{selectedNote.type}</p>
               </div>
               <div className="text-right">
-                <p className="text-sm font-black text-gray-700">{formatDate(selectedNote.createdAt)}</p>
-                <p className="text-[10px] text-gray-400 font-bold uppercase">{formatTime(selectedNote.createdAt)}</p>
+                <p className="text-sm font-black text-gray-700">{formatDate(selectedNote.date)}</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase">{selectedNote.time}</p>
               </div>
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Encounter details</label>
               <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
                 <p className="text-gray-700 text-sm leading-relaxed font-medium italic text-justify">
-                  "{selectedNote.content}"
+                  "{selectedNote.detail}"
                 </p>
               </div>
             </div>
             <div className="flex justify-between items-center pt-4 border-t border-gray-50 text-[10px] font-black text-gray-300 uppercase tracking-widest">
-              <span>Ref ID: NOTE-{selectedNote.id}</span>
+              <span>Ref ID: {selectedNote.noteId}</span>
               <span>Author: {getAuthorName(selectedNote)}</span>
             </div>
           </div>

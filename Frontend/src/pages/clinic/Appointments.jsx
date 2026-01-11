@@ -34,7 +34,8 @@ const Appointments = () => {
   const [formData, setFormData] = useState({
     patientId: '',
     doctorId: '',
-    dateTime: '',
+    date: '',
+    time: '',
     status: 'scheduled',
     reason: '',
     type: 'offline'
@@ -79,16 +80,50 @@ const Appointments = () => {
   }
 
   // Helper to format display values
-  const getPatientName = (apt) => apt.patient?.firstName + ' ' + apt.patient?.lastName || 'Unknown'
-  const getDoctorName = (apt) => apt.doctor?.user?.firstName + ' ' + apt.doctor?.user?.lastName || 'Unknown'
-  const formatDate = (dateTime) => {
-    if (!dateTime) return ''
-    const d = new Date(dateTime)
+  const getPatientName = (apt) => {
+    // Handle null/undefined
+    if (!apt.patient && !apt.patientId) return 'Unknown';
+
+    // If patient is an object with name
+    if (typeof apt.patient === 'object' && apt.patient?.name) return apt.patient.name;
+
+    // In the API response, patient might be a string (name)
+    if (typeof apt.patient === 'string' && apt.patient) return apt.patient;
+
+    // Fallback to patientId if patient name is not available
+    return apt.patientId || 'Unknown';
+  }
+
+  const getDoctorName = (apt) => {
+    if (!apt.doctor && !apt.doctorId) return 'Unknown';
+
+    if (typeof apt.doctor === 'object' && apt.doctor?.name) return apt.doctor.name;
+    if (typeof apt.doctor === 'object' && apt.doctor?.user?.firstName) return `${apt.doctor.user.firstName} ${apt.doctor.user.lastName || ''}`;
+
+    if (typeof apt.doctor === 'string' && apt.doctor) return apt.doctor;
+
+    // Fallback to doctorId if doctor name is not available
+    return apt.doctorId || 'Unknown';
+  }
+
+  const formatDate = (date) => {
+    if (!date) return ''
+    const d = new Date(date)
     return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
   }
-  const formatTime = (dateTime) => {
-    if (!dateTime) return ''
-    const d = new Date(dateTime)
+
+  const formatTime = (time) => {
+    if (!time) return ''
+    // If time is in HH:MM format
+    if (typeof time === 'string' && time.includes(':')) {
+      const [hours, minutes] = time.split(':')
+      const hour = parseInt(hours, 10)
+      const ampm = hour >= 12 ? 'PM' : 'AM'
+      const displayHour = hour % 12 || 12
+      return `${displayHour}:${minutes} ${ampm}`
+    }
+    // If time is a datetime string
+    const d = new Date(time)
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
   }
 
@@ -98,7 +133,7 @@ const Appointments = () => {
       const patientName = getPatientName(apt).toLowerCase()
       const doctorName = getDoctorName(apt).toLowerCase()
       const query = searchQuery.toLowerCase()
-      return patientName.includes(query) || doctorName.includes(query) || String(apt.id).includes(query)
+      return patientName.includes(query) || doctorName.includes(query) || String(apt.id).includes(query) || (apt.appointmentId && apt.appointmentId.toLowerCase().includes(query))
     })
   }, [appointments, searchQuery])
 
@@ -111,7 +146,8 @@ const Appointments = () => {
     setFormData({
       patientId: '',
       doctorId: '',
-      dateTime: now.toISOString().slice(0, 16),
+      date: now.toISOString().slice(0, 10),
+      time: '10:00',
       status: 'scheduled',
       reason: '',
       type: 'offline'
@@ -123,12 +159,12 @@ const Appointments = () => {
     if (!canEdit) return
     setIsEdit(true)
     setSelectedItem(item)
-    const dt = item.dateTime ? new Date(item.dateTime).toISOString().slice(0, 16) : ''
     setFormData({
       patientId: item.patientId || '',
       doctorId: item.doctorId || '',
-      dateTime: dt,
-      status: item.status || 'scheduled',
+      date: item.date ? new Date(item.date).toISOString().slice(0, 10) : '',
+      time: item.time || '',
+      status: item.status ? item.status.toLowerCase() : 'scheduled',
       reason: item.reason || '',
       type: item.type || 'offline'
     })
@@ -163,10 +199,16 @@ const Appointments = () => {
     e.preventDefault()
     setSaving(true)
     try {
+      const submissionData = {
+        ...formData,
+        patientId: formData.patientId,
+        doctorId: formData.doctorId
+      }
+
       if (isEdit) {
-        await appointmentAPI.update(selectedItem.id, formData)
+        await appointmentAPI.update(selectedItem.id, submissionData)
       } else {
-        await appointmentAPI.create(formData)
+        await appointmentAPI.create(submissionData)
       }
       await fetchAppointments()
       setIsModalOpen(false)
@@ -179,7 +221,9 @@ const Appointments = () => {
   }
 
   const getStatusColor = (status) => {
-    switch (status) {
+    // Convert to lowercase to handle API response with capital first letter
+    const statusLower = status ? status.toLowerCase() : '';
+    switch (statusLower) {
       case 'scheduled': return 'bg-blue-50 text-blue-600 border-blue-100'
       case 'completed': return 'bg-green-50 text-green-600 border-green-100'
       case 'cancelled': return 'bg-red-50 text-red-600 border-red-100'
@@ -251,7 +295,7 @@ const Appointments = () => {
             <tbody className="divide-y divide-gray-50">
               {filteredAppointments.map((apt) => (
                 <tr key={apt.id} className="hover:bg-gray-50 transition-colors group">
-                  <td className="px-6 py-4 font-black text-[#1d627d] text-sm tracking-tight">APT-{apt.id}</td>
+                  <td className="px-6 py-4 font-black text-[#1d627d] text-sm tracking-tight">{apt.appointmentId || `APT-${apt.id}`}</td>
                   <td className="px-6 py-4">
                     <div className="font-bold text-gray-800 text-sm">{getPatientName(apt)}</div>
                     <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-none mt-1">{apt.type || 'offline'} Session</div>
@@ -266,10 +310,10 @@ const Appointments = () => {
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-xs font-bold text-gray-600 flex items-center gap-1.5 whitespace-nowrap">
-                      <FiCalendar size={13} className="text-[#90e0ef]" /> {formatDate(apt.dateTime)}
+                      <FiCalendar size={13} className="text-[#90e0ef]" /> {formatDate(apt.date)}
                     </div>
                     <div className="text-[10px] text-gray-400 font-black uppercase mt-0.5 tracking-tighter flex items-center gap-1.5">
-                      <FiClock size={11} className="text-orange-400" /> {formatTime(apt.dateTime)}
+                      <FiClock size={11} className="text-orange-400" /> {formatTime(apt.time)}
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -310,50 +354,92 @@ const Appointments = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Patient</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: parseInt(e.target.value) || '' })}>
+              <select
+                className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+                value={formData.patientId}
+                onChange={(e) => setFormData({ ...formData, patientId: e.target.value })}
+              >
                 <option value="">Select Patient</option>
                 {patients.map(p => (
-                  <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
                 ))}
               </select>
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Assigned Physician</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.doctorId} onChange={(e) => setFormData({ ...formData, doctorId: parseInt(e.target.value) || '' })}>
+              <select
+                className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+                value={formData.doctorId}
+                onChange={(e) => setFormData({ ...formData, doctorId: e.target.value })}
+              >
                 <option value="">Select Doctor</option>
                 {doctors.map(d => (
-                  <option key={d.id} value={d.id}>{d.user?.firstName} {d.user?.lastName} - {d.specialty}</option>
+                  <option key={d.id} value={d.id}>
+                    {d.user?.firstName} {d.user?.lastName} - {d.specialization}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Date & Time</label>
-              <input type="datetime-local" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.dateTime} onChange={(e) => setFormData({ ...formData, dateTime: e.target.value })} />
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Date</label>
+              <input
+                type="date"
+                className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+                value={formData.date}
+                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+              />
             </div>
             <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Time</label>
+              <input
+                type="time"
+                className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+                value={formData.time}
+                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Type</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })}>
+              <select
+                className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+                value={formData.type}
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+              >
                 <option value="offline">Offline</option>
                 <option value="online">Online</option>
               </select>
             </div>
+            {isEdit && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Status</label>
+                <select
+                  className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                >
+                  <option value="scheduled">Scheduled</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="no_show">No Show</option>
+                </select>
+              </div>
+            )}
           </div>
-          {isEdit && (
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Status</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>
-                <option value="scheduled">Scheduled</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="no_show">No Show</option>
-              </select>
-            </div>
-          )}
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Visit Narrative</label>
-            <textarea rows="2" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none font-medium text-sm" placeholder="Reason for consultation..." value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })}></textarea>
+            <textarea
+              rows="2"
+              className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl outline-none font-medium text-sm"
+              placeholder="Reason for consultation..."
+              value={formData.reason}
+              onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+            ></textarea>
           </div>
         </form>
       </Modal>
@@ -370,7 +456,7 @@ const Appointments = () => {
           <div className="space-y-6">
             <div className="card-soft-blue flex justify-between items-center">
               <div>
-                <h4 className="text-xl font-black text-[#1d627d] tracking-tight">APT-{selectedItem.id}</h4>
+                <h4 className="text-xl font-black text-[#1d627d] tracking-tight">{selectedItem.appointmentId || `APT-${selectedItem.id}`}</h4>
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Confirmed clinical entry</p>
               </div>
               <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${getStatusColor(selectedItem.status)}`}>
@@ -388,7 +474,7 @@ const Appointments = () => {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px] self-center">date</span>
-                <span className="font-bold text-gray-700">{formatDate(selectedItem.dateTime)} at {formatTime(selectedItem.dateTime)}</span>
+                <span className="font-bold text-gray-700">{formatDate(selectedItem.date)} at {formatTime(selectedItem.time)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400 font-bold uppercase tracking-widest text-[10px] self-center">type</span>
@@ -409,7 +495,7 @@ const Appointments = () => {
         onClose={() => setIsDeleteOpen(false)}
         onConfirm={confirmDelete}
         title="Void Slot"
-        message={`Authorize cancellation of appointment ${selectedItem?.id}? This action is irreversible.`}
+        message={`Authorize cancellation of appointment ${selectedItem?.appointmentId || selectedItem?.id}? This action is irreversible.`}
       />
     </div>
   )

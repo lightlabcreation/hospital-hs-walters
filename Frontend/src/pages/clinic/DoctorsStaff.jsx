@@ -55,16 +55,39 @@ const DoctorsStaff = () => {
 
   const fetchStaff = async () => {
     try {
-      const response = await userAPI.getAll({ role: 'receptionist,billing_staff' })
-      setStaff(response.data.data || [])
+      // Fetch roles separately to avoid backend enum errors
+      const [receptionists, billingStaff] = await Promise.all([
+        userAPI.getAll({ role: 'receptionist' }),
+        userAPI.getAll({ role: 'billing_staff' })
+      ])
+
+      const combinedStaff = [
+        ...(receptionists.data.data || []),
+        ...(billingStaff.data.data || [])
+      ]
+
+      // Remove duplicates if any (just in case)
+      const uniqueStaff = Array.from(new Map(combinedStaff.map(item => [item.id, item])).values())
+
+      setStaff(uniqueStaff)
     } catch (err) {
       console.error('Failed to load staff:', err)
     }
   }
 
   // Helper functions
-  const getDoctorName = (doc) => doc.user?.firstName + ' ' + doc.user?.lastName || 'Unknown'
-  const getStaffName = (stf) => stf.firstName + ' ' + stf.lastName || 'Unknown'
+  const getDoctorName = (doc) => {
+    if (doc.name) return doc.name;
+    if (doc.firstName) return `${doc.firstName} ${doc.lastName || ''}`.trim();
+    if (doc.user?.firstName) return `${doc.user.firstName} ${doc.user.lastName || ''}`.trim();
+    return 'Unknown';
+  }
+
+  const getStaffName = (stf) => {
+    if (stf.name) return stf.name;
+    if (stf.firstName) return `${stf.firstName} ${stf.lastName || ''}`.trim();
+    return 'Unknown';
+  }
 
   // Filter Logic
   const filteredData = useMemo(() => {
@@ -72,7 +95,13 @@ const DoctorsStaff = () => {
     return data.filter(item => {
       const name = activeTab === 'doctors' ? getDoctorName(item) : getStaffName(item)
       const query = searchQuery.toLowerCase()
-      return name.toLowerCase().includes(query) || String(item.id).includes(query)
+      // For doctors, search by doctorId, or phone, or email via nested user
+      // For staff, search by id or email
+      const idMatch = activeTab === 'doctors' ?
+        String(item.doctorId || item.id).toLowerCase().includes(query) :
+        String(item.id).toLowerCase().includes(query)
+
+      return name.toLowerCase().includes(query) || idMatch
     })
   }, [activeTab, doctors, staff, searchQuery])
 
@@ -81,14 +110,15 @@ const DoctorsStaff = () => {
     if (!canCreate) return
     setIsEdit(false)
     setFormData(activeTab === 'doctors' ? {
-      firstName: '',
+      name: '',
       lastName: '',
       email: '',
       password: '',
-      specialty: 'General Physician',
+      specialization: '', // Changed from specialty
+      department: 'General', // Default department
       role: 'doctor'
     } : {
-      firstName: '',
+      name: '',
       lastName: '',
       email: '',
       password: '',
@@ -103,14 +133,15 @@ const DoctorsStaff = () => {
     setSelectedItem(item)
     if (activeTab === 'doctors') {
       setFormData({
-        firstName: item.user?.firstName || '',
+        name: item.user?.name || item.name || '',
         lastName: item.user?.lastName || '',
         email: item.user?.email || '',
-        specialty: item.specialty || ''
+        specialization: item.specialization || item.specialty || '', // Handle both keys
+        department: item.department || 'General'
       })
     } else {
       setFormData({
-        firstName: item.firstName || '',
+        name: item.name || '',
         lastName: item.lastName || '',
         email: item.email || '',
         role: item.role || 'receptionist'
@@ -133,8 +164,9 @@ const DoctorsStaff = () => {
   const confirmDelete = async () => {
     try {
       if (activeTab === 'doctors') {
-        await userAPI.delete(selectedItem.userId)
-        setDoctors(doctors.filter(d => d.id !== selectedItem.id))
+        const userId = selectedItem.user?.id || selectedItem.id; // Use user ID for deletion
+        await userAPI.delete(userId)
+        setDoctors(doctors.filter(d => d.id !== selectedItem.id && d.user?.id !== selectedItem.id))
       } else {
         await userAPI.delete(selectedItem.id)
         setStaff(staff.filter(s => s.id !== selectedItem.id))
@@ -153,7 +185,7 @@ const DoctorsStaff = () => {
     setSaving(true)
     try {
       if (isEdit) {
-        const userId = activeTab === 'doctors' ? selectedItem.userId : selectedItem.id
+        const userId = activeTab === 'doctors' ? (selectedItem.user?.id || selectedItem.id) : selectedItem.id
         await userAPI.update(userId, formData)
       } else {
         await userAPI.create(formData)
@@ -248,7 +280,9 @@ const DoctorsStaff = () => {
               {filteredData.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
                   <td className="px-6 py-5">
-                    <span className="font-black text-[#1d627d] text-sm tracking-tight">{activeTab === 'doctors' ? 'DOC' : 'STF'}-{item.id}</span>
+                    <div className="font-black text-[#1d627d] text-sm tracking-tight">
+                      {activeTab === 'doctors' ? (item.doctorId || `DOC-${item.id?.substring(0, 8)}`) : `STF-${item.id?.substring(0, 8)}`}
+                    </div>
                   </td>
                   <td className="px-6 py-5">
                     <div className="flex items-center gap-3">
@@ -263,12 +297,12 @@ const DoctorsStaff = () => {
                   </td>
                   <td className="px-6 py-5">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${activeTab === 'doctors' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-purple-50 text-purple-600 border-purple-100'}`}>
-                      {activeTab === 'doctors' ? item.specialty : item.role}
+                      {activeTab === 'doctors' ? (item.specialization || item.department || 'General') : item.role}
                     </span>
                   </td>
                   <td className="px-6 py-5 text-center">
                     <div className="text-gray-700 font-black text-[10px] uppercase flex items-center justify-center gap-1.5 grayscale opacity-70">
-                      <FiClock size={12} /> {activeTab === 'doctors' ? 'Available' : item.role}
+                      <FiClock size={12} /> {activeTab === 'doctors' ? (item.availability || 'Mon-Fri') : '09:00 - 17:00'}
                     </div>
                   </td>
                   <td className="px-6 py-5">
@@ -304,7 +338,7 @@ const DoctorsStaff = () => {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">First Name</label>
-              <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm placeholder:font-normal" value={formData.firstName || ''} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} />
+              <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm placeholder:font-normal" value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Last Name</label>
@@ -315,7 +349,7 @@ const DoctorsStaff = () => {
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{activeTab === 'doctors' ? 'Specialization' : 'Job Role'}</label>
               {activeTab === 'doctors' ? (
-                <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="e.g. Cardiology" value={formData.specialty || ''} onChange={(e) => setFormData({ ...formData, specialty: e.target.value })} />
+                <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="e.g. Cardiology" value={formData.specialization || ''} onChange={(e) => setFormData({ ...formData, specialization: e.target.value })} />
               ) : (
                 <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.role || ''} onChange={(e) => setFormData({ ...formData, role: e.target.value })}>
                   <option value="receptionist">Receptionist</option>
@@ -353,7 +387,9 @@ const DoctorsStaff = () => {
               </div>
               <div>
                 <h4 className="text-xl font-black text-[#1D627D] tracking-tight">{activeTab === 'doctors' ? getDoctorName(selectedItem) : getStaffName(selectedItem)}</h4>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{activeTab === 'doctors' ? 'DOC' : 'STF'}-{selectedItem.id} • {activeTab === 'doctors' ? selectedItem.specialty : selectedItem.role}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                  {activeTab === 'doctors' ? (selectedItem.doctorId || `DOC-${selectedItem.id}`) : `STF-${selectedItem.id}`} • {activeTab === 'doctors' ? (selectedItem.specialization || selectedItem.department || 'General') : selectedItem.role}
+                </p>
               </div>
             </div>
             <div className="space-y-4 px-1 text-sm font-medium text-gray-700">
@@ -361,10 +397,10 @@ const DoctorsStaff = () => {
                 <span>Email</span>
                 <span className="text-[#1D627D]">{activeTab === 'doctors' ? selectedItem.user?.email : selectedItem.email}</span>
               </div>
-              {activeTab === 'doctors' && selectedItem.specialty && (
+              {activeTab === 'doctors' && (selectedItem.specialization || selectedItem.department) && (
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
                   <p className="font-black text-[10px] uppercase text-gray-400 mb-1">Specialty</p>
-                  <p className="font-bold text-gray-700">{selectedItem.specialty}</p>
+                  <p className="font-bold text-gray-700">{selectedItem.specialization || selectedItem.department}</p>
                 </div>
               )}
             </div>

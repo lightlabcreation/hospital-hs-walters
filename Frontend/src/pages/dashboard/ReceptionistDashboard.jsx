@@ -13,7 +13,6 @@ const ReceptionistDashboard = () => {
   const [saving, setSaving] = useState(false)
   const [patients, setPatients] = useState([])
   const [appointments, setAppointments] = useState([])
-  const [doctors, setDoctors] = useState([])
   const [stats, setStats] = useState({
     newPatientsToday: 0,
     appointmentsBooked: 0,
@@ -35,36 +34,44 @@ const ReceptionistDashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true)
-      const [patientsRes, appointmentsRes, doctorsRes] = await Promise.all([
+      const [patientsRes, appointmentsRes] = await Promise.all([
         patientAPI.getAll(),
-        appointmentAPI.getAll(),
-        doctorAPI.getAll()
+        appointmentAPI.getAll()
       ])
 
       const allPatients = patientsRes.data.data || []
       const allAppointments = appointmentsRes.data.data || []
-      const allDoctors = doctorsRes.data.data || []
 
-      // Filter today's data
-      const today = new Date().toISOString().split('T')[0]
+      // Helper to get local YYYY-MM-DD
+      const getLocalDate = (date) => {
+        const d = new Date(date);
+        return d.toLocaleDateString('en-CA'); // YYYY-MM-DD format
+      }
+
+      const today = getLocalDate(new Date());
+
+      // Filter today's data using local date comparison
       const todayPatients = allPatients.filter(p => {
-        const createdDate = p.createdAt?.split('T')[0]
-        return createdDate === today
+        if (!p.createdAt) return false;
+        return getLocalDate(p.createdAt) === today;
       })
 
       const todayAppointments = allAppointments.filter(a => {
-        const aptDate = a.date?.split('T')[0]
-        return aptDate === today
+        if (!a.date) return false;
+        return getLocalDate(a.date) === today;
       })
 
       const cancelledToday = todayAppointments.filter(a => a.status === 'cancelled').length
-      const pendingOrScheduled = todayAppointments.filter(a =>
-        a.status === 'scheduled' || a.status === 'pending'
-      )
 
-      setPatients(allPatients.slice(-10).reverse()) // Show recent 10 patients
-      setAppointments(pendingOrScheduled.slice(0, 10))
-      setDoctors(allDoctors)
+      // For the queue, we show pending/scheduled for today, OR all future pending/scheduled if specifically requested, 
+      // but usually a dashboard shows today's work. Let's fallback to showing most recent upcoming if today is empty?
+      // For now, let's strictly show TODAY's queue as per standard receptionist workflow.
+      const queueAppointments = todayAppointments.filter(a =>
+        a.status === 'scheduled' || a.status === 'pending' || a.status === 'in_progress'
+      ).sort((a, b) => new Date(a.date) - new Date(b.date))
+
+      setPatients(allPatients.slice(-10).reverse()) // Show 10 most recently created patients
+      setAppointments(queueAppointments)
 
       setStats({
         newPatientsToday: todayPatients.length,
@@ -130,29 +137,37 @@ const ReceptionistDashboard = () => {
     }
   }
 
-  const getPatientName = (apt) => {
-    // Backend returns patient as a string (full name)
-    if (typeof apt.patient === 'string') {
-      return apt.patient || 'Unknown'
+  // Robust Helpers
+  const getPatientName = (data) => {
+    if (!data) return 'Unknown';
+    // If passed an appointment with nested patient object
+    if (data.patient) {
+      if (typeof data.patient === 'string') return data.patient;
+      return data.patient.name || `${data.patient.firstName || ''} ${data.patient.lastName || ''}`.trim() || 'Unknown';
     }
-    if (apt.patient) {
-      return apt.patient.name || `${apt.patient.firstName || ''} ${apt.patient.lastName || ''}`.trim() || 'Unknown'
-    }
-    return 'Unknown'
+    // If passed a patient object directly
+    if (typeof data === 'string') return data;
+    return data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'Unknown';
   }
 
-  const getDoctorName = (apt) => {
-    // Backend returns doctor as a string (full name)
-    if (typeof apt.doctor === 'string') {
-      return apt.doctor.startsWith('Dr.') ? apt.doctor : `Dr. ${apt.doctor}`
+  const getDoctorName = (data) => {
+    if (!data) return 'Unknown';
+    // Data can be appointment object with .doctor
+    let doctor = data.doctor || data;
+
+    if (typeof doctor === 'string') return doctor.startsWith('Dr.') ? doctor : `Dr. ${doctor}`;
+
+    // Check for nested user object (common in robust backend)
+    if (doctor.user) {
+      const name = doctor.user.name || `${doctor.user.firstName || ''} ${doctor.user.lastName || ''}`.trim();
+      return name ? `Dr. ${name}` : 'Unknown Doctor';
     }
-    if (apt.doctor?.user) {
-      const name = apt.doctor.user.firstName
-        ? `${apt.doctor.user.firstName} ${apt.doctor.user.lastName || ''}`.trim()
-        : apt.doctor.user.name || ''
-      return `Dr. ${name}`.trim()
-    }
-    return 'Doctor'
+
+    // Check top level fields on doctor object
+    if (doctor.name) return `Dr. ${doctor.name}`;
+    if (doctor.firstName) return `Dr. ${doctor.firstName} ${doctor.lastName || ''}`.trim();
+
+    return 'Unknown Doctor';
   }
 
   const formatTime = (dateStr) => {
@@ -218,7 +233,7 @@ const ReceptionistDashboard = () => {
                 {patients.length > 0 ? patients.map(p => (
                   <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="text-sm font-bold text-gray-800">{p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim()}</div>
+                      <div className="text-sm font-bold text-gray-800">{getPatientName(p)}</div>
                       <div className="text-[10px] text-gray-400 font-bold uppercase">{p.patientId || `PAT-${p.id}`}</div>
                     </td>
                     <td className="px-6 py-4">
@@ -233,7 +248,7 @@ const ReceptionistDashboard = () => {
                 )) : (
                   <tr>
                     <td colSpan="3" className="px-6 py-10 text-center text-gray-400 text-sm">
-                      No patients registered yet
+                      No patients registered recently
                     </td>
                   </tr>
                 )}
@@ -245,7 +260,7 @@ const ReceptionistDashboard = () => {
         {/* Right Side: Appointments Queue */}
         <Card className="border-gray-100 shadow-sm overflow-hidden p-0">
           <div className="p-4 border-b border-gray-50 flex justify-between items-center bg-[#90E0EF]/10">
-            <h3 className="text-[10px] font-black text-[#1D627D] uppercase tracking-widest">Queue Status</h3>
+            <h3 className="text-[10px] font-black text-[#1D627D] uppercase tracking-widest">Today's Queue</h3>
             <span className="bg-white px-2 py-0.5 rounded text-[8px] font-black text-[#1d627d] border border-blue-50 uppercase tracking-widest">Live Roster</span>
           </div>
           <div className="p-0">
@@ -273,7 +288,7 @@ const ReceptionistDashboard = () => {
                 )) : (
                   <tr>
                     <td colSpan="2" className="px-6 py-10 text-center text-gray-400 text-sm">
-                      No appointments in queue
+                      No appointments scheduled for today
                     </td>
                   </tr>
                 )}

@@ -22,7 +22,11 @@ const getAllPatients = async (req, res) => {
         where: { userId: req.user.id },
       });
       if (doctor) {
-        where.assignedDoctorId = doctor.id;
+        where.OR = [
+          { assignedDoctorId: doctor.id },
+          { appointments: { some: { doctorId: doctor.id } } },
+          { medicalNotes: { some: { doctorId: doctor.id } } }
+        ];
       } else {
         return res.status(200).json({ data: [], pagination: { total: 0 } });
       }
@@ -117,10 +121,13 @@ const getPatientById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { patientId: id }
+      : { OR: [{ id: queryId }, { patientId: id }] };
+
     const patient = await prisma.patient.findFirst({
-      where: {
-        OR: [{ id }, { patientId: id }],
-      },
+      where: whereCondition,
       include: {
         user: {
           select: {
@@ -206,10 +213,11 @@ const createPatient = async (req, res) => {
       age,
       gender,
       phone,
-      address,
       bloodGroup,
       history,
       assignedDoctorId,
+      lastVisit,
+      address,
     } = req.body;
 
     // Validation
@@ -260,7 +268,8 @@ const createPatient = async (req, res) => {
           address: address || '',
           bloodGroup: bloodGroup || '',
           history: history || '',
-          assignedDoctorId: assignedDoctorId || null,
+          assignedDoctorId: assignedDoctorId ? parseInt(assignedDoctorId) : null,
+          lastVisit: lastVisit ? new Date(lastVisit) : null,
         },
       });
 
@@ -277,6 +286,7 @@ const createPatient = async (req, res) => {
         age: result.patient.age,
         gender: result.patient.gender,
         phone: result.patient.phone,
+        lastVisit: result.patient.lastVisit,
       },
     });
   } catch (error) {
@@ -300,17 +310,21 @@ const updatePatient = async (req, res) => {
       age,
       gender,
       phone,
-      address,
       bloodGroup,
       history,
       assignedDoctorId,
+      lastVisit,
+      address,
     } = req.body;
+
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { patientId: id }
+      : { OR: [{ id: queryId }, { patientId: id }] };
 
     // Find patient
     const patient = await prisma.patient.findFirst({
-      where: {
-        OR: [{ id }, { patientId: id }],
-      },
+      where: whereCondition,
     });
 
     if (!patient) {
@@ -339,7 +353,8 @@ const updatePatient = async (req, res) => {
           ...(address !== undefined && { address }),
           ...(bloodGroup !== undefined && { bloodGroup }),
           ...(history !== undefined && { history }),
-          ...(assignedDoctorId !== undefined && { assignedDoctorId }),
+          ...(assignedDoctorId !== undefined && { assignedDoctorId: parseInt(assignedDoctorId) }),
+          ...(lastVisit !== undefined && { lastVisit: lastVisit ? new Date(lastVisit) : null }),
         },
       });
     });
@@ -383,11 +398,14 @@ const deletePatient = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { patientId: id }
+      : { OR: [{ id: queryId }, { patientId: id }] };
+
     // Find patient
     const patient = await prisma.patient.findFirst({
-      where: {
-        OR: [{ id }, { patientId: id }],
-      },
+      where: whereCondition,
     });
 
     if (!patient) {

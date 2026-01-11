@@ -83,7 +83,7 @@ const BillingDashboard = () => {
     try {
       const dueDate = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
       await billingAPI.create({
-        patientId: parseInt(formData.patientId),
+        patientId: formData.patientId,
         amount: parseFloat(formData.amount),
         paymentMethod: formData.paymentMethod,
         dueDate,

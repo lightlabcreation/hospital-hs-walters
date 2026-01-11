@@ -1,5 +1,39 @@
 import api from './config';
 
+// Helper to normalize person objects (patients, doctors, users)
+// Handles _id/id mismatch and name/firstName/lastName formats
+const normalizeData = (item) => {
+  if (!item) return item;
+  if (typeof item !== 'object') return item;
+
+  const id = item.id || item._id;
+
+  // Handle various name formats
+  let firstName = item.firstName || item.first_name || '';
+  let lastName = item.lastName || item.last_name || '';
+  let name = item.name || '';
+
+  // If we have name but no split names
+  if (name && !firstName) {
+    const parts = name.split(' ');
+    firstName = parts[0];
+    lastName = parts.slice(1).join(' ');
+  }
+
+  // If we have split names but no full name
+  if (!name && firstName) {
+    name = `${firstName} ${lastName}`.trim();
+  }
+
+  return {
+    ...item,
+    id,
+    firstName,
+    lastName,
+    name
+  };
+};
+
 // ============================================
 // AUTH API
 // ============================================
@@ -14,7 +48,13 @@ export const authAPI = {
 // ============================================
 export const userAPI = {
   getProfile: () => api.get('/users/me'),
-  getAll: (params) => api.get('/users', { params }),
+  getAll: async (params) => {
+    const response = await api.get('/users', { params });
+    if (response.data && response.data.data) {
+      response.data.data = response.data.data.map(normalizeData);
+    }
+    return response;
+  },
   getById: (id) => api.get(`/users/${id}`),
   create: (data) => api.post('/users', data),
   update: (id, data) => api.put(`/users/${id}`, data),
@@ -25,8 +65,21 @@ export const userAPI = {
 // PATIENT API
 // ============================================
 export const patientAPI = {
-  getAll: (params) => api.get('/patients', { params }),
-  getById: (id) => api.get(`/patients/${id}`),
+  getAll: async (params) => {
+    const response = await api.get('/patients', { params });
+    if (response.data && response.data.data) {
+      response.data.data = response.data.data.map(normalizeData);
+    }
+    return response;
+  },
+  getById: async (id) => {
+    const response = await api.get(`/patients/${id}`);
+    if (response.data) {
+      if (response.data.data) response.data.data = normalizeData(response.data.data);
+      else response.data = normalizeData(response.data);
+    }
+    return response;
+  },
   create: (data) => api.post('/patients', data),
   update: (id, data) => api.put(`/patients/${id}`, data),
   delete: (id) => api.delete(`/patients/${id}`),
@@ -36,8 +89,34 @@ export const patientAPI = {
 // APPOINTMENT API
 // ============================================
 export const appointmentAPI = {
-  getAll: (params) => api.get('/appointments', { params }),
-  getById: (id) => api.get(`/appointments/${id}`),
+  getAll: async (params) => {
+    const response = await api.get('/appointments', { params });
+    if (response.data && response.data.data) {
+      response.data.data = response.data.data.map(apt => ({
+        ...apt,
+        id: apt.id || apt._id,
+        patient: normalizeData(apt.patient),
+        // Doctor might be nested, but we try to normalize the top level of the doctor object
+        doctor: normalizeData(apt.doctor)
+      }));
+    }
+    return response;
+  },
+  getById: async (id) => {
+    const response = await api.get(`/appointments/${id}`);
+    if (response.data) {
+      const apt = response.data.data || response.data;
+      const normalized = {
+        ...apt,
+        id: apt.id || apt._id,
+        patient: normalizeData(apt.patient),
+        doctor: normalizeData(apt.doctor)
+      };
+      if (response.data.data) response.data.data = normalized;
+      else response.data = normalized;
+    }
+    return response;
+  },
   create: (data) => api.post('/appointments', data),
   update: (id, data) => api.put(`/appointments/${id}`, data),
   delete: (id) => api.delete(`/appointments/${id}`),
@@ -79,7 +158,18 @@ export const medicalNotesAPI = {
 // BILLING/INVOICE API
 // ============================================
 export const billingAPI = {
-  getAll: (params) => api.get('/invoices', { params }),
+  getAll: async (params) => {
+    const response = await api.get('/invoices', { params });
+    if (response.data && response.data.data) {
+      response.data.data = response.data.data.map(inv => ({
+        ...inv,
+        id: inv.id || inv._id,
+        patient: normalizeData(inv.patient),
+        doctor: normalizeData(inv.doctor)
+      }));
+    }
+    return response;
+  },
   getById: (id) => api.get(`/invoices/${id}`),
   create: (data) => api.post('/invoices', data),
   update: (id, data) => api.put(`/invoices/${id}`, data),
@@ -103,24 +193,37 @@ export const reportsAPI = {
 export const doctorAPI = {
   getAll: async (params) => {
     const response = await api.get('/users', { params: { ...params, role: 'doctor' } });
-    // Transform data to match frontend expectations
+
     if (response.data.data) {
-      response.data.data = response.data.data.map(user => ({
-        id: user.doctor?.id || user.id,
-        doctorId: user.doctor?.doctorId,
-        department: user.doctor?.department,
-        specialization: user.doctor?.specialization,
-        phone: user.doctor?.phone,
-        availability: user.doctor?.availability,
-        user: {
-          id: user.id,
-          firstName: user.name?.split(' ')[0] || user.name,
-          lastName: user.name?.split(' ').slice(1).join(' ') || '',
-          email: user.email,
-        },
-        isActive: user.isActive,
-        createdAt: user.createdAt,
-      }));
+      response.data.data = response.data.data.map(user => {
+        // First normalize the user part
+        const normalizedUser = normalizeData(user);
+
+        // Handle nested doctor profile if it exists or use main user fields
+        const doctorProfile = user.doctor || {};
+
+        return {
+          id: doctorProfile.id || normalizedUser.id, // Prefer doctor ID if available, else user ID
+          doctorId: doctorProfile.doctorId,
+          department: doctorProfile.department,
+          specialization: doctorProfile.specialization,
+          phone: doctorProfile.phone || user.phone,
+          availability: doctorProfile.availability,
+          user: {
+            id: normalizedUser.id,
+            firstName: normalizedUser.firstName,
+            lastName: normalizedUser.lastName,
+            email: user.email,
+          },
+          // Ensure top-level identifiers exist for dropdowns
+          name: normalizedUser.name,
+          firstName: normalizedUser.firstName,
+          lastName: normalizedUser.lastName,
+
+          isActive: user.isActive,
+          createdAt: user.createdAt,
+        };
+      });
     }
     return response;
   },

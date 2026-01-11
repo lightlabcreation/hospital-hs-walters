@@ -1,17 +1,35 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Button from '../../components/common/Button'
 import Modal from '../../components/common/Modal'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
 import { FiSearch, FiEye, FiTrash2, FiPlus } from 'react-icons/fi'
 
 const Reports = () => {
-  const [reports, setReports] = useState([
-    { id: 1, name: 'Monthly Revenue Report', type: 'Financial', date: '2024-01-15', status: 'Generated' },
-    { id: 2, name: 'Fleet Utilization Report', type: 'Operations', date: '2024-01-14', status: 'Generated' },
-    { id: 3, name: 'Driver Performance Report', type: 'Operations', date: '2024-01-13', status: 'Pending' },
-    { id: 4, name: 'Customer Satisfaction Report', type: 'Customer', date: '2024-01-12', status: 'Generated' },
-    { id: 5, name: 'Route Efficiency Report', type: 'Operations', date: '2024-01-11', status: 'Generated' },
-  ])
+  const [reports, setReports] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchReports()
+  }, [])
+
+  const fetchReports = async () => {
+    try {
+      setLoading(true)
+      // This is a placeholder since we don't have a specific getAll reports endpoint in the services.js viewed earlier.
+      // Assuming we should show some aggregated data or if there's a reports endpoint I missed.
+      // Based on available services, I'll use a placeholder or relevant API call if available.
+      // The user asked to remove dummy data, so I will set it to empty for now and add aTODO or try to fetch if an endpoint exists.
+      // Looking at services.js, there isn't a generic GET /reports endpoint that returns a list like this.
+      // However, the user request is specifically "remove dummy data".
+      // I will initialize it as empty and perhaps add a comment or try to use a real endpoint if one existed.
+      // Since no direct list endpoint exists in the viewed services.js, I will leave it empty to comply with "remove dummy data".
+      setReports([])
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -87,8 +105,8 @@ const Reports = () => {
   }
 
   const getStatusBadge = (status) => {
-    return status === 'Generated' 
-      ? 'bg-green-100 text-green-800' 
+    return status === 'Generated'
+      ? 'bg-green-100 text-green-800'
       : 'bg-yellow-100 text-yellow-800'
   }
 
@@ -133,7 +151,13 @@ const Reports = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {paginatedReports.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                    Loading reports...
+                  </td>
+                </tr>
+              ) : paginatedReports.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
                     No reports found
@@ -203,11 +227,10 @@ const Reports = () => {
                     <button
                       key={page}
                       onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-1 text-sm rounded-lg transition-all ${
-                        currentPage === page
-                          ? 'bg-[#1d627d] text-white shadow-lg'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
+                      className={`px-3 py-1 text-sm rounded-lg transition-all ${currentPage === page
+                        ? 'bg-[#1d627d] text-white shadow-lg'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
                     >
                       {page}
                     </button>
@@ -258,9 +281,8 @@ const Reports = () => {
                 setFormData({ ...formData, name: e.target.value })
                 if (errors.name) setErrors({ ...errors, name: '' })
               }}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary ${
-                errors.name ? 'border-red-500' : 'border-gray-300'
-              }`}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary ${errors.name ? 'border-red-500' : 'border-gray-300'
+                }`}
               placeholder="Enter report name"
             />
             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
@@ -286,9 +308,8 @@ const Reports = () => {
                 setFormData({ ...formData, date: e.target.value })
                 if (errors.date) setErrors({ ...errors, date: '' })
               }}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary ${
-                errors.date ? 'border-red-500' : 'border-gray-300'
-              }`}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary ${errors.date ? 'border-red-500' : 'border-gray-300'
+                }`}
             />
             {errors.date && <p className="text-red-500 text-xs mt-1">{errors.date}</p>}
           </div>

@@ -174,7 +174,7 @@ const getUserById = async (req, res) => {
     const { id } = req.params;
 
     const user = await prisma.user.findUnique({
-      where: { id },
+      where: { id: parseInt(id) },
       select: {
         id: true,
         email: true,
@@ -344,7 +344,7 @@ const updateUser = async (req, res) => {
 
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
-      where: { id },
+      where: { id: parseInt(id) },
     });
 
     if (!existingUser) {
@@ -362,7 +362,7 @@ const updateUser = async (req, res) => {
 
     // Update user
     const updatedUser = await prisma.user.update({
-      where: { id },
+      where: { id: parseInt(id) },
       data: updateData,
       select: {
         id: true,
@@ -378,17 +378,17 @@ const updateUser = async (req, res) => {
     if (profileData) {
       if (existingUser.role === 'patient') {
         await prisma.patient.update({
-          where: { userId: id },
+          where: { userId: parseInt(id) },
           data: profileData,
         });
       } else if (existingUser.role === 'doctor') {
         await prisma.doctor.update({
-          where: { userId: id },
+          where: { userId: parseInt(id) },
           data: profileData,
         });
       } else if (existingUser.role === 'receptionist' || existingUser.role === 'billing_staff') {
         await prisma.staff.update({
-          where: { userId: id },
+          where: { userId: parseInt(id) },
           data: profileData,
         });
       }
@@ -416,7 +416,7 @@ const deleteUser = async (req, res) => {
 
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
-      where: { id },
+      where: { id: parseInt(id) },
     });
 
     if (!existingUser) {
@@ -440,8 +440,9 @@ const deleteUser = async (req, res) => {
     }
 
     // Delete user (cascade will delete related profile)
+    const idInt = parseInt(id); // define for clarity if needed, or just inline
     await prisma.user.delete({
-      where: { id },
+      where: { id: idInt },
     });
 
     return res.status(200).json({

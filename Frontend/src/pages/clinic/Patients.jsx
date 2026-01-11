@@ -4,11 +4,11 @@ import Button from '../../components/common/Button'
 import Modal from '../../components/common/Modal'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
 import { FiPlus, FiSearch, FiEdit2, FiEye, FiTrash2, FiUser, FiCheck, FiLoader } from 'react-icons/fi'
-import { patientAPI } from '../../api/services'
+import { patientAPI, appointmentAPI } from '../../api/services'
 import { useAuth } from '../../context/AuthContext'
 
 const Patients = () => {
-  const { role } = useAuth()
+  const { role, user } = useAuth()
   const [patients, setPatients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -31,7 +31,8 @@ const Patients = () => {
     phone: '',
     address: '',
     bloodGroup: 'A+',
-    history: ''
+    history: '',
+    lastVisit: '',
   })
 
   // Fetch patients on mount
@@ -42,8 +43,22 @@ const Patients = () => {
   const fetchPatients = async () => {
     try {
       setLoading(true)
-      const response = await patientAPI.getAll()
-      setPatients(response.data.data || [])
+      const [patientsRes, appointmentsRes] = await Promise.all([
+        patientAPI.getAll(),
+        appointmentAPI.getAll()
+      ])
+
+      let allPatients = patientsRes.data.data || []
+      const allAppointments = appointmentsRes.data.data || []
+
+      // Role-based filtering handled by backend
+      /* 
+      if (role === 'doctor' && user) {
+        // Backend now handles this filtering by checking assignments, appointments, and medical notes
+      }
+      */
+
+      setPatients(allPatients)
       setError('')
     } catch (err) {
       console.error('Failed to fetch patients:', err)
@@ -74,7 +89,8 @@ const Patients = () => {
       phone: '',
       address: '',
       bloodGroup: 'A+',
-      history: ''
+      history: '',
+      lastVisit: '',
     })
     setIsModalOpen(true)
   }
@@ -91,7 +107,8 @@ const Patients = () => {
       phone: item.phone || '',
       address: item.address || '',
       bloodGroup: item.bloodGroup || 'A+',
-      history: item.history || ''
+      history: item.history || '',
+      lastVisit: item.lastVisit ? new Date(item.lastVisit).toISOString().split('T')[0] : ''
     })
     setIsModalOpen(true)
   }
@@ -123,10 +140,17 @@ const Patients = () => {
     setSaving(true)
 
     try {
+      // Prepare submission data
+      const submissionData = { ...formData }
+      if (submissionData.lastVisit) {
+        // Convert YYYY-MM-DD to ISO string
+        submissionData.lastVisit = new Date(submissionData.lastVisit).toISOString()
+      }
+
       if (isEdit) {
-        await patientAPI.update(selectedItem.id, formData)
+        await patientAPI.update(selectedItem.id, submissionData)
       } else {
-        await patientAPI.create(formData)
+        await patientAPI.create(submissionData)
       }
       await fetchPatients()
       setIsModalOpen(false)
@@ -216,7 +240,11 @@ const Patients = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-xs font-bold text-gray-500 whitespace-nowrap">
-                        {patient.lastVisit ? new Date(patient.lastVisit).toLocaleDateString() : 'N/A'}
+                        {new Date(patient.lastVisit || patient.createdAt).toLocaleDateString('en-GB', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric'
+                        })}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-center">
@@ -327,6 +355,10 @@ const Patients = () => {
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Address</label>
             <input type="text" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" placeholder="123 Main St, City" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Last Visit</label>
+            <input type="date" className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.lastVisit} onChange={(e) => setFormData({ ...formData, lastVisit: e.target.value })} />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Medical History</label>

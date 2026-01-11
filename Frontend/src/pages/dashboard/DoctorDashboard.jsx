@@ -51,31 +51,61 @@ const DoctorDashboard = () => {
       const allPatients = patientsRes.data.data || []
       const allLabReports = labRes.data.data || []
 
-      // Filter today's appointments for this doctor
-      const today = new Date().toISOString().split('T')[0]
-      const todayAppts = allAppointments.filter(a => {
-        const aptDate = a.date?.split('T')[0]
-        return aptDate === today && (a.status === 'scheduled' || a.status === 'pending')
-      })
+      // Helper to match dates in local time
+      const getLocalDate = (date) => new Date(date).toLocaleDateString('en-CA');
+      const today = getLocalDate(new Date());
 
-      setAppointments(todayAppts.slice(0, 10)) // Show max 10 appointments
-      setPatients(allPatients)
-      setLabReports(allLabReports)
+      // Filter Appointments for this Doctor
+      // Logic: Appointment has doctorId or doctor nested object. Match with user.id or user.doctor.id
+      const myAppointments = allAppointments.filter(a => {
+        // If data structure is flattened and has doctorId matching user's doctor profile
+        // Or if it has nested doctor object
+        const aptDocId = a.doctor?.id || a.doctorId;
+        const myDocId = user.doctor?.id || user.id; // Fallback if user is the doctor
+
+        // Robust check: match nested doctor ID, nested doctor-user ID, or top level doctor ID
+        const matchById = aptDocId === myDocId;
+        const matchByUserId = a.doctor?.userId === user.id || a.doctor?.user?.id === user.id;
+
+        // NOTE: If no doctor assigned, maybe don't show.
+        if (!a.doctor) return false;
+
+        return matchById || matchByUserId;
+      }).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      const todayAppts = myAppointments.filter(a => {
+        if (!a.date) return false;
+        return getLocalDate(a.date) === today && (a.status === 'scheduled' || a.status === 'pending')
+      });
+
+      // Filter "My Patients"
+      // Backend now filters patients for doctors (assigned + appointments + notes)
+      const myPatients = allPatients;
+
+      // Filter Lab Reports for my patients
+      const myPatientIds = myPatients.map(p => p.id);
+      const myLabReports = allLabReports.filter(l =>
+        myPatientIds.includes(l.patientId) || myPatientIds.includes(l.patient?.id)
+      );
+
+      const pendingLabReports = myLabReports.filter(l => l.status === 'pending').length
+
+      setAppointments(todayAppts.slice(0, 10))
+      setPatients(myPatients)
+      setLabReports(myLabReports.filter(l => l.status === 'pending').slice(0, 5)) // Show pending
 
       // Calculate stats
-      const completedToday = allAppointments.filter(a => {
-        const aptDate = a.date?.split('T')[0]
-        return aptDate === today && a.status === 'completed'
+      const completedToday = myAppointments.filter(a => {
+        if (!a.date) return false;
+        return getLocalDate(a.date) === today && a.status === 'completed'
       }).length
 
-      const pendingLabReports = allLabReports.filter(l => l.status === 'pending').length
-
       setStats({
-        myPatients: allPatients.length,
+        myPatients: myPatients.length,
         todaySlots: todayAppts.length + completedToday,
         remainingSlots: todayAppts.length,
         newLabReports: pendingLabReports,
-        monthlyReports: allLabReports.length
+        monthlyReports: myLabReports.length
       })
 
     } catch (err) {
@@ -120,7 +150,7 @@ const DoctorDashboard = () => {
     setSaving(true)
     try {
       await prescriptionAPI.create({
-        patientId: parseInt(prescriptionForm.patientId),
+        patientId: prescriptionForm.patientId,
         medications: prescriptionForm.medications,
         instructions: 'As prescribed'
       })
@@ -140,7 +170,7 @@ const DoctorDashboard = () => {
       // Create lab requests for each selected test
       for (const test of labForm.tests) {
         await labAPI.create({
-          patientId: parseInt(labForm.patientId),
+          patientId: labForm.patientId,
           testName: test,
           status: 'pending'
         })

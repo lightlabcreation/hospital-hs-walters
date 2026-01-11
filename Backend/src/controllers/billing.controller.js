@@ -98,10 +98,13 @@ const getInvoiceById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { invoiceId: id }
+      : { OR: [{ id: queryId }, { invoiceId: id }] };
+
     const invoice = await prisma.invoice.findFirst({
-      where: {
-        OR: [{ id }, { invoiceId: id }],
-      },
+      where: whereCondition,
       include: {
         patient: {
           include: {
@@ -169,10 +172,13 @@ const createInvoice = async (req, res) => {
     }
 
     // Find patient
+    const patientQueryId = parseInt(patientId);
+    const patientWhere = isNaN(patientQueryId)
+      ? { patientId: patientId }
+      : { OR: [{ id: patientQueryId }, { patientId: patientId }] };
+
     const patient = await prisma.patient.findFirst({
-      where: {
-        OR: [{ id: patientId }, { patientId: patientId }],
-      },
+      where: patientWhere,
     });
 
     if (!patient) {
@@ -242,10 +248,13 @@ const updateInvoice = async (req, res) => {
     const { amount, status, dueDate, method, items } = req.body;
 
     // Find invoice
+    const queryId = parseInt(id);
+    const whereCondition = isNaN(queryId)
+      ? { invoiceId: id }
+      : { OR: [{ id: queryId }, { invoiceId: id }] };
+
     const invoice = await prisma.invoice.findFirst({
-      where: {
-        OR: [{ id }, { invoiceId: id }],
-      },
+      where: whereCondition,
     });
 
     if (!invoice) {

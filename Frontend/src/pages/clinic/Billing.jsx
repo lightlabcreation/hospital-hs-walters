@@ -65,7 +65,13 @@ const Billing = () => {
   }
 
   // Helper functions
-  const getPatientName = (inv) => inv.patient?.firstName + ' ' + inv.patient?.lastName || 'Unknown'
+  const getPatientName = (inv) => {
+    if (!inv.patient && !inv.patientId) return 'Unknown';
+    if (typeof inv.patient === 'string') return inv.patient;
+    if (inv.patient?.name) return inv.patient.name;
+    return inv.patient?.firstName ? `${inv.patient.firstName} ${inv.patient.lastName || ''}`.trim() : inv.patientId;
+  }
+
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
     const d = new Date(dateStr)
@@ -77,7 +83,7 @@ const Billing = () => {
     return invoices.filter(inv => {
       const patientName = getPatientName(inv).toLowerCase()
       const query = searchQuery.toLowerCase()
-      return patientName.includes(query) || String(inv.id).includes(query)
+      return patientName.includes(query) || String(inv.invoiceId || inv.id).toLowerCase().includes(query)
     })
   }, [invoices, searchQuery])
 
@@ -195,7 +201,7 @@ const Billing = () => {
               {filteredInvoices.map((inv) => (
                 <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors group">
                   <td className="px-6 py-4">
-                    <div className="font-black text-[#1d627d] text-sm tracking-tight">INV-{inv.id}</div>
+                    <div className="font-black text-[#1d627d] text-sm tracking-tight">{inv.invoiceId || `INV-${inv.id}`}</div>
                     <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Due: {formatDate(inv.dueDate)}</div>
                   </td>
                   <td className="px-6 py-4">
@@ -262,7 +268,7 @@ const Billing = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Patient</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: parseInt(e.target.value) || '' })}>
+              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: e.target.value })} >
                 <option value="">Select Patient</option>
                 {patients.map(p => (
                   <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
@@ -317,7 +323,7 @@ const Billing = () => {
           <div className="space-y-6">
             <div className="card-soft-blue flex justify-between items-center">
               <div>
-                <h3 className="text-xl font-black text-[#1D627D]">INV-{selectedItem.id}</h3>
+                <h3 className="text-xl font-black text-[#1D627D]">{selectedItem.invoiceId || `INV-${selectedItem.id}`}</h3>
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1 italic">Generated on {formatDate(selectedItem.createdAt)}</p>
               </div>
               <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase text-xs border ${getStatusColor(selectedItem.status)}`}>

@@ -80,8 +80,22 @@ const Prescriptions = () => {
   }
 
   // Helper to format display values
-  const getPatientName = (pre) => pre.patient?.firstName + ' ' + pre.patient?.lastName || 'Unknown'
-  const getDoctorName = (pre) => pre.doctor?.user?.firstName + ' ' + pre.doctor?.user?.lastName || 'Unknown'
+  const getPatientName = (pre) => {
+    if (!pre.patient && !pre.patientId) return 'Unknown';
+    if (typeof pre.patient === 'string') return pre.patient; // API returns string name
+    if (pre.patient?.name) return pre.patient.name;
+    return pre.patient?.firstName ? `${pre.patient.firstName} ${pre.patient.lastName || ''}`.trim() : pre.patientId;
+  }
+
+  const getDoctorName = (pre) => {
+    if (!pre.doctor && !pre.doctorId) return 'Unknown';
+    if (typeof pre.doctor === 'string') return pre.doctor; // API returns string name
+    if (pre.doctor?.name) return pre.doctor.name;
+    // Fallback for nested user object
+    if (pre.doctor?.user?.firstName) return `${pre.doctor.user.firstName} ${pre.doctor.user.lastName || ''}`.trim();
+    return pre.doctorId;
+  }
+
   const formatDate = (dateStr) => {
     if (!dateStr) return ''
     const d = new Date(dateStr)
@@ -94,7 +108,7 @@ const Prescriptions = () => {
       const patientName = getPatientName(pre).toLowerCase()
       const query = searchQuery.toLowerCase()
       return patientName.includes(query) ||
-        String(pre.id).includes(query) ||
+        String(pre.prescriptionId || pre.id).toLowerCase().includes(query) ||
         (pre.medications || '').toLowerCase().includes(query)
     })
   }, [prescriptions, searchQuery])
@@ -256,8 +270,8 @@ const Prescriptions = () => {
               {filteredPrescriptions.map((pre) => (
                 <tr key={pre.id} className="hover:bg-gray-50 transition-colors group">
                   <td className="px-6 py-4">
-                    <span className="font-black text-[#1d627d]">PRE-{pre.id}</span>
-                    <div className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{formatDate(pre.createdAt)}</div>
+                    <span className="font-black text-[#1d627d]">{pre.prescriptionId || `PRE-${pre.id}`}</span>
+                    <div className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{formatDate(pre.date || pre.createdAt)}</div>
                   </td>
                   <td className="px-6 py-4 font-bold text-gray-800">{getPatientName(pre)}</td>
                   <td className="px-6 py-4 text-gray-700 font-medium">{getDoctorName(pre)}</td>
@@ -303,7 +317,7 @@ const Prescriptions = () => {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Patient</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: parseInt(e.target.value) || '' })}>
+              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.patientId} onChange={(e) => setFormData({ ...formData, patientId: e.target.value })} >
                 <option value="">Select Patient</option>
                 {patients.map(p => (
                   <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
@@ -312,7 +326,7 @@ const Prescriptions = () => {
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Prescribing Doctor</label>
-              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.doctorId} onChange={(e) => setFormData({ ...formData, doctorId: parseInt(e.target.value) || '' })}>
+              <select className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm" value={formData.doctorId} onChange={(e) => setFormData({ ...formData, doctorId: e.target.value })} >
                 <option value="">Select Doctor</option>
                 {doctors.map(d => (
                   <option key={d.id} value={d.id}>{d.user?.firstName} {d.user?.lastName} - {d.specialty}</option>

@@ -91,7 +91,7 @@ const PatientDashboard = () => {
     setSaving(true)
     try {
       await appointmentAPI.create({
-        doctorId: parseInt(bookingForm.doctorId),
+        doctorId: bookingForm.doctorId,
         date: new Date(bookingForm.date).toISOString(),
         reason: bookingForm.reason || 'General Consultation',
         status: 'scheduled'
