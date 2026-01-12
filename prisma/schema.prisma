@@ -64,6 +64,7 @@ model User {
   doctor  Doctor?
   staff   Staff?
 
+  @@map("user")  
   @@index([email])
   @@index([role])
 }
