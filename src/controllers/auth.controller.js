@@ -21,7 +21,7 @@ const login = async (req, res) => {
     }
 
     // Find user by email
-    const user = await prisma.user.findUnique({
+    const user = await prisma.User.findUnique({
       where: { email: email.toLowerCase() },
     });
 
@@ -85,7 +85,7 @@ const logout = async (req, res) => {
  */
 const getMe = async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
+    const user = await prisma.User.findUnique({
       where: { id: req.user.id },
       select: {
         id: true,
