@@ -98,6 +98,7 @@ model Patient {
   medicalNotes  MedicalNote[]
   invoices      Invoice[]
 
+  @@map("patient") 
   @@index([patientId])
   @@index([assignedDoctorId])
 }
@@ -127,6 +128,7 @@ model Doctor {
   labResults       LabResult[]
   medicalNotes     MedicalNote[]
 
+  @@map("doctor")
   @@index([doctorId])
   @@index([department])
 }
@@ -148,6 +150,7 @@ model Staff {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  @@map("staff")
   @@index([staffId])
   @@index([jobRole])
 }
@@ -171,6 +174,7 @@ model Appointment {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
+  @@map("appointment")
   @@index([appointmentId])
   @@index([patientId])
   @@index([doctorId])
@@ -197,6 +201,7 @@ model Prescription {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
+  @@map("prescription")
   @@index([prescriptionId])
   @@index([patientId])
   @@index([doctorId])
@@ -221,6 +226,7 @@ model LabResult {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
+@@map("labResult")
   @@index([labId])
   @@index([patientId])
   @@index([doctorId])
