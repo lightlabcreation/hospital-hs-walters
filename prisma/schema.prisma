@@ -250,6 +250,7 @@ model MedicalNote {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+@@map("medicalNote")
   @@index([noteId])
   @@index([patientId])
   @@index([doctorId])
@@ -272,6 +273,7 @@ model Invoice {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
+@@map("invoice")
   @@index([invoiceId])
   @@index([patientId])
   @@index([status])
